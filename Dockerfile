@@ -12,7 +12,6 @@ WORKDIR /workspace
 # Copy dependency manifests first so Docker can cache the
 # dependency-download layer separately from the source code.
 COPY pom.xml .
-COPY .mvn/ .mvn/ 2>/dev/null || true
 
 # Download dependencies (offline-friendly cache layer)
 RUN --mount=type=cache,target=/root/.m2 \
