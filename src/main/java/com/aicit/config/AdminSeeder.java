@@ -27,18 +27,29 @@ public class AdminSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        if (!adminUserRepository.existsByEmail(adminEmail)) {
-            AdminUser admin = AdminUser.builder()
-                    .email(adminEmail)
-                    .password(passwordEncoder.encode(adminPassword))
-                    .fullName("AICIT Super Admin")
-                    .role(AdminUser.Role.SUPER_ADMIN)
-                    .isActive(true)
-                    .build();
-            adminUserRepository.save(admin);
-            log.info("Seeded admin user: {}", adminEmail);
-        } else {
-            log.info("Admin user already exists: {}", adminEmail);
-        }
+        adminUserRepository.findByEmail(adminEmail).ifPresentOrElse(
+            existing -> {
+                // Keep the seed admin's password in sync with the configured
+                // value so updating AICIT_ADMIN_PASSWORD + redeploy resets it.
+                if (!passwordEncoder.matches(adminPassword, existing.getPassword())) {
+                    existing.setPassword(passwordEncoder.encode(adminPassword));
+                    adminUserRepository.save(existing);
+                    log.info("Admin user password re-synced from configuration: {}", adminEmail);
+                } else {
+                    log.info("Admin user already exists: {}", adminEmail);
+                }
+            },
+            () -> {
+                AdminUser admin = AdminUser.builder()
+                        .email(adminEmail)
+                        .password(passwordEncoder.encode(adminPassword))
+                        .fullName("AICIT Super Admin")
+                        .role(AdminUser.Role.SUPER_ADMIN)
+                        .isActive(true)
+                        .build();
+                adminUserRepository.save(admin);
+                log.info("Seeded admin user: {}", adminEmail);
+            }
+        );
     }
 }
