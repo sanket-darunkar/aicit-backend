@@ -1,0 +1,35 @@
+# ============================================================
+# .dockerignore – keeps the Docker build context lean and safe
+# ============================================================
+
+# Maven build output (re-built inside the container)
+target/
+
+# Git metadata (not needed in the image)
+.git/
+.gitignore
+
+# Local secrets and dev scripts – MUST NOT enter the image
+.env
+*.env
+*.env.local
+start-dev.sh
+
+# IDE / editor files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker files themselves (no need to copy into context)
+Dockerfile
+.dockerignore

@@ -26,7 +26,8 @@ public class EmailService {
     @Value("${app.mail.from:noreply@aicit.org}")
     private String fromAddress;
 
-    @Value("${app.frontend.url:http://localhost:5174}")
+    // Used in email links — points to the public website (not the CORS origin)
+    @Value("${app.api.base-url:https://aicit.org}")
     private String frontendUrl;
 
     // ── Institute approval ────────────────────────────────────
@@ -34,27 +35,46 @@ public class EmailService {
     @Async
     public void sendInstituteApprovalEmail(String toEmail, String instituteName,
                                             String contactName, String tempPassword) {
-        String subject = "AICIT – Your Institute Has Been Approved!";
+        String subject = "AICIT – Your Institute Has Been Approved! 🎉";
         String body = String.format("""
+                ╔══════════════════════════════════════════════════╗
+                          ALL INDIA COUNCIL FOR INFORMATION TECHNOLOGY
+                                     AICIT Platform
+                ╚══════════════════════════════════════════════════╝
+
                 Dear %s,
-                
-                Congratulations! Your institute "%s" has been approved on the AICIT platform.
-                
-                You can now log in to the Institute Portal using the following credentials:
-                
+
+                Congratulations! Your institute "%s" has been approved
+                and is now an authorised AICIT partner institute.
+
+                ──────────────────────────────────────────────────
+                  YOUR LOGIN CREDENTIALS
+                ──────────────────────────────────────────────────
                   Portal URL : %s/institute/login
                   Email      : %s
                   Password   : %s
-                
-                Please change your password after your first login.
-                
-                If you have any questions, please contact us at info@aicit.org.
-                
+                ──────────────────────────────────────────────────
+
+                ⚠️  IMPORTANT: Please change your password immediately
+                    after your first login.
+
+                NEXT STEPS:
+                  1. Log in to the Institute Portal
+                  2. Add your students
+                  3. Submit certificate requests
+                  4. Download approved certificates
+
+                ──────────────────────────────────────────────────
+                  Need help? Contact us at info@aicit.org
+                  Phone: +91 8888723485
+                ──────────────────────────────────────────────────
+
                 Best regards,
                 AICIT Team
                 All India Council for Information Technology
+                %s | info@aicit.org | +91 8888723485
                 """,
-                contactName, instituteName, frontendUrl, toEmail, tempPassword);
+                contactName, instituteName, frontendUrl, toEmail, tempPassword, frontendUrl);
 
         send(toEmail, subject, body);
     }
@@ -90,20 +110,34 @@ public class EmailService {
                                         String instituteName, String newPassword) {
         String subject = "AICIT – Your Password Has Been Reset";
         String body = String.format("""
+                ╔══════════════════════════════════════════════════╗
+                          ALL INDIA COUNCIL FOR INFORMATION TECHNOLOGY
+                                     AICIT Platform
+                ╚══════════════════════════════════════════════════╝
+
                 Dear %s,
-                
-                Your AICIT institute portal password for "%s" has been reset by the administrator.
-                
-                  Portal URL : %s/institute/login
-                  Email      : %s
-                  New Password: %s
-                
-                Please log in and change your password immediately.
-                
+
+                Your AICIT Institute Portal password for "%s" has been reset.
+
+                ──────────────────────────────────────────────────
+                  Portal URL    : %s/institute/login
+                  Email         : %s
+                  New Password  : %s
+                ──────────────────────────────────────────────────
+
+                ⚠️  Please log in and change your password immediately.
+
+                ──────────────────────────────────────────────────
+                  Need help? Contact us at info@aicit.org
+                  Phone: +91 8888723485
+                ──────────────────────────────────────────────────
+
                 Best regards,
                 AICIT Team
+                All India Council for Information Technology
+                %s | info@aicit.org | +91 8888723485
                 """,
-                contactName, instituteName, frontendUrl, toEmail, newPassword);
+                contactName, instituteName, frontendUrl, toEmail, newPassword, frontendUrl);
 
         send(toEmail, subject, body);
     }
@@ -112,21 +146,48 @@ public class EmailService {
     public void sendCertificateReadyEmail(String toEmail, String contactName,
                                            String instituteName, String studentName,
                                            String certNumber) {
-        String subject = "AICIT – Certificate Ready for Download";
+        String subject = "AICIT – Certificate Ready for Download | " + certNumber;
+        String verifyUrl = frontendUrl + "/verify/" + certNumber;
         String body = String.format("""
+                ╔══════════════════════════════════════════════════╗
+                          ALL INDIA COUNCIL FOR INFORMATION TECHNOLOGY
+                                     AICIT Platform
+                ╚══════════════════════════════════════════════════╝
+
                 Dear %s,
-                
-                The certificate for student "%s" has been approved and is ready to download.
-                
+
+                Great news! The certificate for student "%s" from %s has been
+                approved and is now ready to download.
+
+                ──────────────────────────────────────────────────
                   Certificate Number : %s
-                  Verify Online      : %s/verify/%s
-                
-                Please log in to your institute portal to download the certificate PDF.
-                
+                  Student Name       : %s
+                  Institute          : %s
+                  Verify Online      : %s
+                ──────────────────────────────────────────────────
+
+                ACTION REQUIRED:
+                Please log in to your Institute Portal to download the
+                certificate PDF:
+
+                  Portal URL : %s/institute/login
+
+                The certificate PDF can be downloaded from:
+                  Institute Portal → Certificates → Download
+
+                ──────────────────────────────────────────────────
+                  Need help? Contact us at info@aicit.org
+                  Phone: +91 8888723485
+                ──────────────────────────────────────────────────
+
                 Best regards,
                 AICIT Team
+                All India Council for Information Technology
+                %s | info@aicit.org | +91 8888723485
                 """,
-                contactName, studentName, certNumber, frontendUrl, certNumber);
+                contactName, studentName, instituteName,
+                certNumber, studentName, instituteName,
+                verifyUrl, frontendUrl, frontendUrl);
 
         send(toEmail, subject, body);
     }
