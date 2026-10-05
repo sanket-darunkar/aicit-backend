@@ -1,5 +1,6 @@
 package com.aicit.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,10 +9,27 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * Email notification service.
- * Controlled by app.mail.enabled — set to false in dev to avoid
- * sending real emails during testing.
+ *
+ * <p>Transport selection:
+ * <ul>
+ *   <li>If {@code BREVO_API_KEY} is set → send via Brevo HTTPS API (port 443).
+ *       This is required on hosts like Render that block outbound SMTP ports.</li>
+ *   <li>Otherwise → fall back to SMTP via {@link JavaMailSender}
+ *       (works locally where SMTP is not blocked).</li>
+ * </ul>
+ *
+ * Controlled by {@code app.mail.enabled} — set to false to disable sending.
  */
 @Service
 @RequiredArgsConstructor
@@ -26,9 +44,23 @@ public class EmailService {
     @Value("${app.mail.from:noreply@aicit.org}")
     private String fromAddress;
 
+    // Display name for the From sender
+    @Value("${app.mail.from-name:AICIT}")
+    private String fromName;
+
     // Used in email links — points to the public website (not the CORS origin)
     @Value("${app.api.base-url:https://aicit.org}")
     private String frontendUrl;
+
+    // ── Brevo HTTP API (works on Render — SMTP ports are blocked there) ──
+    @Value("${brevo.api-key:}")
+    private String brevoApiKey;
+
+    private static final String BREVO_URL = "https://api.brevo.com/v3/smtp/email";
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ── Institute approval ────────────────────────────────────
 
@@ -205,6 +237,57 @@ public class EmailService {
                     to, subject, body.substring(0, Math.min(80, body.length())));
             return;
         }
+
+        // Prefer Brevo HTTP API when a key is configured (required on Render).
+        if (brevoApiKey != null && !brevoApiKey.isBlank()) {
+            sendViaBrevo(to, subject, body);
+        } else {
+            sendViaSmtp(to, subject, body);
+        }
+    }
+
+    /** Send email through the Brevo transactional email HTTPS API (port 443). */
+    private void sendViaBrevo(String to, String subject, String body) {
+        try {
+            Map<String, Object> sender = new LinkedHashMap<>();
+            sender.put("name",  fromName);
+            sender.put("email", fromAddress);
+
+            Map<String, String> recipient = new LinkedHashMap<>();
+            recipient.put("email", to);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("sender", sender);
+            payload.put("to", List.of(recipient));
+            payload.put("subject", subject);
+            payload.put("textContent", body);
+
+            String json = objectMapper.writeValueAsString(payload);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BREVO_URL))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("api-key", brevoApiKey)
+                    .header("Content-Type", "application/json")
+                    .header("accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                log.info("Email sent via Brevo to {} — {}", to, subject);
+            } else {
+                log.error("Brevo API failed for {} — HTTP {} : {}",
+                        to, response.statusCode(), response.body());
+            }
+        } catch (Exception e) {
+            log.error("Failed to send email via Brevo to {}: {}", to, e.getMessage());
+        }
+    }
+
+    /** Send email through SMTP (used in dev / where SMTP ports are open). */
+    private void sendViaSmtp(String to, String subject, String body) {
         try {
             SimpleMailMessage msg = new SimpleMailMessage();
             msg.setFrom(fromAddress);
@@ -212,9 +295,9 @@ public class EmailService {
             msg.setSubject(subject);
             msg.setText(body);
             mailSender.send(msg);
-            log.info("Email sent to {} — {}", to, subject);
+            log.info("Email sent via SMTP to {} — {}", to, subject);
         } catch (Exception e) {
-            log.error("Failed to send email to {}: {}", to, e.getMessage());
+            log.error("Failed to send email via SMTP to {}: {}", to, e.getMessage());
         }
     }
 }
