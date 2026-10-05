@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS certificate_verification_logs (
     ip_address          VARCHAR(45),
     user_agent          VARCHAR(500),
     result              VARCHAR(20)  NOT NULL DEFAULT 'FOUND',
+    created_at          TIMESTAMP    NOT NULL DEFAULT NOW(),
     CONSTRAINT pk_vlog  PRIMARY KEY (id),
     CONSTRAINT chk_vlog_result CHECK (result IN ('FOUND','NOT_FOUND','REVOKED'))
 );
