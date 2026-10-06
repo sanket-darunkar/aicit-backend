@@ -233,8 +233,8 @@ public class EmailService {
 
     private void send(String to, String subject, String body) {
         if (!mailEnabled) {
-            log.info("[EMAIL DISABLED] To: {} | Subject: {} | Body preview: {}...",
-                    to, subject, body.substring(0, Math.min(80, body.length())));
+            // NOTE: never log the body — welcome/reset emails contain plaintext passwords.
+            log.info("[EMAIL DISABLED] To: {} | Subject: {}", to, subject);
             return;
         }
 

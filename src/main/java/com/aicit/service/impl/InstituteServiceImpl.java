@@ -136,8 +136,7 @@ public class InstituteServiceImpl implements InstituteService {
 
             // Send welcome email with credentials
             emailService.sendInstituteApprovalEmail(emailAddr, instName, contactNm, tempPassword);
-            log.info("Created institute user for {} — temp password (email disabled in dev): {}",
-                    emailAddr, tempPassword);
+            log.info("Created institute user for {} — temporary password sent by email", emailAddr);
         }
 
         return InstituteResponse.from(institute);

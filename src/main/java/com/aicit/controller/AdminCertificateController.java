@@ -140,8 +140,7 @@ public class AdminCertificateController {
         // Send email with new password (async — lazy loading safe because we pre-fetched data above)
         emailService.sendPasswordResetEmail(userEmail, userFullName, instituteName, newPassword);
 
-        log.info("Password reset for institute {} user {} — new password logged (email disabled in dev): {}",
-                id, userEmail, newPassword);
+        log.info("Password reset for institute {} user {} — new password sent by email", id, userEmail);
 
         return ResponseEntity.ok(ApiResponse.success(
                 "Password reset successfully. New password sent to " + userEmail,

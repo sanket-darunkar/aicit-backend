@@ -49,6 +49,8 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
     private static final List<Certificate.Status> DUPLICATE_EXCLUDED =
             List.of(Certificate.Status.REJECTED, Certificate.Status.REVOKED);
 
+    private static final int MAX_CSV_ROWS = 1000;
+
     private final CertificateBatchRepository batchRepository;
     private final CertificateRepository      certificateRepository;
     private final StudentRepository          studentRepository;
@@ -60,6 +62,7 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
     private final CertificateNumberGenerator certNumGenerator;
     private final EmailService               emailService;
     private final AuditLogService            auditLogService;
+    private final SequenceRepository         sequenceRepository;
 
     // ══════════════════════════════════════════════════════════
     //  SINGLE
@@ -239,20 +242,21 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
         batch.setSubmittedBy(resolveInstituteUser(instituteUserId));
         batch = batchRepository.save(batch);
 
-        for (Resolved r : resolved) {
-            Certificate cert = Certificate.builder()
-                    .institute(institute)
-                    .student(r.student())
-                    .course(r.course())
-                    .marks(r.marks())
-                    .grade(r.grade())
-                    .status(Certificate.Status.REQUESTED)
-                    .batch(batch)
-                    .amount(UNIT_AMOUNT)
-                    .paymentStatus(PaymentStatus.PENDING)
-                    .build();
-            certificateRepository.save(cert);
-        }
+        final CertificateBatch savedBatch = batch;
+        List<Certificate> certs = resolved.stream()
+                .map(r -> Certificate.builder()
+                        .institute(institute)
+                        .student(r.student())
+                        .course(r.course())
+                        .marks(r.marks())
+                        .grade(r.grade())
+                        .status(Certificate.Status.REQUESTED)
+                        .batch(savedBatch)
+                        .amount(UNIT_AMOUNT)
+                        .paymentStatus(PaymentStatus.PENDING)
+                        .build())
+                .toList();
+        certificateRepository.saveAll(certs);
 
         batch.setBatchStatus(CertificateBatch.BatchStatus.VALIDATED);
         batchRepository.save(batch);
@@ -401,8 +405,19 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
                 "Batch payment must be PAID before processing. Current: " + batch.getPaymentStatus());
         }
 
+        // Idempotency / double-processing guard: only start from a non-terminal,
+        // not-already-processing state. The @Version column + this status flip make
+        // concurrent process() calls fail fast (one wins, the other sees PROCESSING
+        // or an OptimisticLockException).
+        CertificateBatch.BatchStatus current = batch.getBatchStatus();
+        if (current == CertificateBatch.BatchStatus.PROCESSING) {
+            throw new IllegalStateException("Batch is already being processed.");
+        }
+        if (current == CertificateBatch.BatchStatus.COMPLETED) {
+            throw new IllegalStateException("Batch has already been fully processed.");
+        }
         batch.setBatchStatus(CertificateBatch.BatchStatus.PROCESSING);
-        batchRepository.save(batch);
+        batchRepository.saveAndFlush(batch); // flush now so @Version conflict surfaces early
 
         List<Certificate> certs = certificateRepository.findByBatchId(batchId);
         int issued = 0;
@@ -521,12 +536,9 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
                 .build();
     }
 
+    /** Single-statement payment-status propagation to all certs in a batch (no N+1). */
     private void applyPaymentStatusToCerts(CertificateBatch batch, PaymentStatus status) {
-        List<Certificate> certs = certificateRepository.findByBatchId(batch.getId());
-        for (Certificate c : certs) {
-            c.setPaymentStatus(status);
-            certificateRepository.save(c);
-        }
+        certificateRepository.updatePaymentStatusByBatchId(batch.getId(), status);
     }
 
     private void assertNoActiveDuplicate(Long studentId, Long courseId) {
@@ -545,28 +557,16 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
         return BatchResponse.withCertificates(batch, certs);
     }
 
+    /** Atomic, race-safe batch code via DB sequence. */
     private String generateUniqueBatchCode() {
-        int year = LocalDate.now().getYear();
-        String prefix = "BATCH-" + year + "-";
-        long maxSeq = batchRepository.findBatchCodesByPrefix(prefix).stream()
-                .mapToLong(c -> {
-                    try { return Long.parseLong(c.substring(prefix.length())); }
-                    catch (Exception e) { return 0L; }
-                })
-                .max().orElse(0L);
-        return String.format("BATCH-%d-%06d", year, maxSeq + 1);
+        long seq = sequenceRepository.nextVal("batch_code_seq");
+        return String.format("BATCH-%d-%06d", LocalDate.now().getYear(), seq);
     }
 
+    /** Atomic, race-safe certificate number via DB sequence. */
     private String generateUniqueCertNumber() {
-        int year = LocalDate.now().getYear();
-        String prefix = "AICIT-" + year + "-";
-        long maxSeq = certificateRepository.findCertNumbersByPrefix(prefix).stream()
-                .mapToLong(n -> {
-                    try { return Long.parseLong(n.substring(prefix.length())); }
-                    catch (Exception e) { return 0L; }
-                })
-                .max().orElse(0L);
-        return certNumGenerator.generate(maxSeq + 1);
+        long seq = sequenceRepository.nextVal("cert_number_seq");
+        return certNumGenerator.generate(seq);
     }
 
     private List<ParsedRow> parseCsv(MultipartFile file) {
@@ -589,6 +589,11 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
                     idx = mapHeader(cols);
                     continue;
                 }
+                if (out.size() >= MAX_CSV_ROWS) {
+                    throw new DataConflictException(
+                        "CSV exceeds the maximum of " + MAX_CSV_ROWS + " data rows. "
+                        + "Split it into smaller files.");
+                }
                 ParsedRow row = new ParsedRow();
                 row.rowNumber = lineNo;
                 row.studentId  = col(cols, idx[0]);
@@ -597,6 +602,8 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
                 row.grade      = col(cols, idx[3]);
                 out.add(row);
             }
+        } catch (DataConflictException e) {
+            throw e; // propagate validation errors (empty, too many rows) unchanged
         } catch (Exception e) {
             throw new DataConflictException("Failed to read CSV: " + e.getMessage());
         }

@@ -38,6 +38,12 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
     long countByBatchId(Long batchId);
     long countByBatchIdAndStatus(Long batchId, Certificate.Status status);
 
+    // Single-statement payment-status propagation to all certs in a batch (avoids N+1)
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE Certificate c SET c.paymentStatus = :status WHERE c.batch.id = :batchId")
+    int updatePaymentStatusByBatchId(@Param("batchId") Long batchId,
+                                     @Param("status") com.aicit.entity.PaymentStatus status);
+
     @Query("""
         SELECT c FROM Certificate c
         WHERE c.institute.id = :instituteId

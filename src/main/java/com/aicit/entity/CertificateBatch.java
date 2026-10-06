@@ -35,6 +35,12 @@ public class CertificateBatch {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Optimistic lock — prevents concurrent double-processing / lost updates. */
+    @Version
+    @Column(nullable = false)
+    @Builder.Default
+    private Long version = 0L;
+
     /** Public identifier, e.g. BATCH-2026-000001 */
     @Column(name = "batch_code", nullable = false, unique = true, length = 40)
     private String batchCode;
