@@ -41,7 +41,7 @@ public class EmailService {
     @Value("${app.mail.enabled:false}")
     private boolean mailEnabled;
 
-    @Value("${app.mail.from:noreply@aicit.org}")
+    @Value("${app.mail.from:info@aicit.org.in}")
     private String fromAddress;
 
     // Display name for the From sender
@@ -49,7 +49,7 @@ public class EmailService {
     private String fromName;
 
     // Used in email links — points to the public website (not the CORS origin)
-    @Value("${app.api.base-url:https://aicit.org}")
+    @Value("${app.api.base-url:https://aicit.org.in}")
     private String frontendUrl;
 
     // ── Brevo HTTP API (works on Render — SMTP ports are blocked there) ──
@@ -97,14 +97,14 @@ public class EmailService {
                   4. Download approved certificates
 
                 ──────────────────────────────────────────────────
-                  Need help? Contact us at info@aicit.org
+                  Need help? Contact us at info@aicit.org.in
                   Phone: +91 8888723485
                 ──────────────────────────────────────────────────
 
                 Best regards,
                 AICIT Team
                 All India Council for Information Technology
-                %s | info@aicit.org | +91 8888723485
+                %s | info@aicit.org.in | +91 8888723485
                 """,
                 contactName, instituteName, frontendUrl, toEmail, tempPassword, frontendUrl);
 
@@ -126,7 +126,7 @@ public class EmailService {
                 Reason: %s
                 
                 You may submit a new application after addressing the above.
-                For further assistance, please contact info@aicit.org.
+                For further assistance, please contact info@aicit.org.in.
                 
                 Best regards,
                 AICIT Team
@@ -160,14 +160,14 @@ public class EmailService {
                 ⚠️  Please log in and change your password immediately.
 
                 ──────────────────────────────────────────────────
-                  Need help? Contact us at info@aicit.org
+                  Need help? Contact us at info@aicit.org.in
                   Phone: +91 8888723485
                 ──────────────────────────────────────────────────
 
                 Best regards,
                 AICIT Team
                 All India Council for Information Technology
-                %s | info@aicit.org | +91 8888723485
+                %s | info@aicit.org.in | +91 8888723485
                 """,
                 contactName, instituteName, frontendUrl, toEmail, newPassword, frontendUrl);
 
@@ -208,14 +208,14 @@ public class EmailService {
                   Institute Portal → Certificates → Download
 
                 ──────────────────────────────────────────────────
-                  Need help? Contact us at info@aicit.org
+                  Need help? Contact us at info@aicit.org.in
                   Phone: +91 8888723485
                 ──────────────────────────────────────────────────
 
                 Best regards,
                 AICIT Team
                 All India Council for Information Technology
-                %s | info@aicit.org | +91 8888723485
+                %s | info@aicit.org.in | +91 8888723485
                 """,
                 contactName, studentName, instituteName,
                 certNumber, studentName, instituteName,

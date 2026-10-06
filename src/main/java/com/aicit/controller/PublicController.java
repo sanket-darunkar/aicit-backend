@@ -53,6 +53,10 @@ public class PublicController {
     private final EmailService                     emailService;
     private final PasswordEncoder                  passwordEncoder;
 
+    // Where public contact-form submissions are delivered.
+    @org.springframework.beans.factory.annotation.Value("${app.contact.recipient:info@aicit.org.in}")
+    private String contactRecipient;
+
     // ── Health ────────────────────────────────────────────────
     @GetMapping("/health")
     @Operation(summary = "Health check")
@@ -134,7 +138,7 @@ public class PublicController {
         // Log the contact message — email admin notification
         String body = String.format("Contact Form Submission\n\nName: %s\nEmail: %s\nMobile: %s\nSubject: %s\n\nMessage:\n%s",
                 req.getName(), req.getEmail(), req.getMobile(), req.getSubject(), req.getMessage());
-        emailService.sendRawEmail("info@aicit.org", "AICIT Contact Form: " + req.getSubject(), body);
+        emailService.sendRawEmail(contactRecipient, "AICIT Contact Form: " + req.getSubject(), body);
         return ResponseEntity.ok(ApiResponse.success("Message received. We will get back to you shortly."));
     }
 
