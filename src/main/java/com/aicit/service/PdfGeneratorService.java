@@ -298,65 +298,63 @@ public class PdfGeneratorService {
                     doc, page, AppendMode.APPEND, true, true)) {
 
                 // ── Student ID / Center Code / ATC row ────────────────
-                // Measured from scan: data row sits at y ≈ 582 pts from bottom (73.5% of 792)
-                // Table spans x≈55 to x≈580 across 3 columns
-                //   Col1 (Student ID):  x center ≈ 130  → box 55–225
-                //   Col2 (Center Code): x center ≈ 295  → box 225–365
-                //   Col3 (ATC Name):    x center ≈ 475  → box 365–580
-                float idRowY = 582f;
-                drawCenteredTextInBox(cs, bold, 9f, navy, studentId,   55f,  225f, idRowY);
-                drawCenteredTextInBox(cs, bold, 9f, navy, centerCode, 225f,  365f, idRowY);
-                drawCenteredTextInBox(cs, bold, 9f, navy, atcName,    365f,  580f, idRowY);
+                // Measured: input boxes sit at pdf_y ≈ 505. Box left edges at
+                // x = 62, 192, 328; right edge ≈ 550.
+                //   Col1 (Student ID):  box 62–192  (center 127)
+                //   Col2 (Center Code): box 192–328 (center 260)
+                //   Col3 (ATC Name):    box 328–550 (center 439)
+                float idRowY = 513f;
+                drawCenteredTextInBox(cs, bold, 9f, navy, studentId,   62f,  192f, idRowY);
+                drawCenteredTextInBox(cs, bold, 9f, navy, centerCode, 192f,  328f, idRowY);
+                drawCenteredTextInBox(cs, bold, 7.5f, navy, atcName,  328f,  550f, idRowY);
 
-                // ── Student name ──────────────────────────────────────
-                // Measured: "NAVYA D. AGARE" at y ≈ 510 pts (64.4% of 792)
-                float nameY = 510f;
-                drawCenteredText(cs, bold, 16f, navy,
-                        studentName.toUpperCase(), W, nameY);
+                // ── Student name — in the "WITHIN SIGNED" box ─────────
+                // Box starts at x ≈ 339 and extends right to ≈ 550;
+                // baseline pdf_y ≈ 480.
+                drawCenteredTextInBox(cs, bold, 13f, navy,
+                        studentName.toUpperCase(), 342f, 552f, 480f);
 
-                // ── Location / month / grade row ──────────────────────
-                // Measured from scan: "held at  Nagpur/Nagpur  in  A  Centre/Grade"
-                // y ≈ 395 pts from bottom (49.9%)
-                //   venue: after "in the month of" label, x ≈ 165
-                //   month: x ≈ 190 (fills the blank after "in the month of")
-                //   grade: x ≈ 468 (fills blank after "in")
-                float locationY = 395f;
-                // venue (city/district) — placed right of "held at" label which ends ~90 pts
+                // ── Location / month / grade rows ─────────────────────
+                // Two sub-lines (measured):
+                //   top:    "held at ______ ... Centre"            pdf_y ≈ 350
+                //   bottom: "in the month of ______ in ___ Grade"  pdf_y ≈ 333
+                // Labels end at: "held at"≈x140, "in the month of"≈x150,
+                // "in"(before Grade)≈x515.
                 cs.beginText();
                 cs.setFont(bold, 9f);
                 cs.setNonStrokingColor(navy);
-                cs.newLineAtOffset(110f, locationY + 2f);   // top sub-line: "held at"
+                cs.newLineAtOffset(155f, 350f);
                 cs.showText(venue);
                 cs.endText();
-                // month — right of "in the month of" label
+
                 cs.beginText();
                 cs.setFont(bold, 9f);
                 cs.setNonStrokingColor(navy);
-                cs.newLineAtOffset(190f, locationY - 12f);  // bottom sub-line
+                cs.newLineAtOffset(160f, 333f);
                 cs.showText(month);
                 cs.endText();
-                // grade — right of "in" on bottom sub-line
+
                 cs.beginText();
                 cs.setFont(bold, 10f);
                 cs.setNonStrokingColor(navy);
-                cs.newLineAtOffset(468f, locationY - 12f);
+                cs.newLineAtOffset(525f, 333f);
                 cs.showText(grade);
                 cs.endText();
 
                 // ── Marks table data row ──────────────────────────────
-                // Measured: data row at y ≈ 333 pts (42.1% of 792)
-                // 5 columns across x≈55 to x≈577:
-                //   Subject (col1):       x 55–230
-                //   Speed WPM (col2):     x 230–295  → leave blank (not stored)
-                //   Max Marks (col3):     x 295–385
-                //   Min Marks (col4):     x 385–470
-                //   Marks Obtained (col5):x 470–577
-                float marksY = 333f;
-                drawCenteredTextInBox(cs, bold, 8f, navy, subject,        55f,  230f, marksY);
+                // Measured: data box row at pdf_y ≈ 288. Column borders at
+                // x = 192, 240, 335, 440, 545 (table edges ≈ 55 and 545):
+                //   Subject (col1):        55–192
+                //   Speed WPM (col2):     192–240  → blank (not stored)
+                //   Max Marks (col3):     240–335
+                //   Min Marks (col4):     335–440
+                //   Marks Obtained (col5):440–545
+                float marksY = 288f;
+                drawCenteredTextInBox(cs, bold, 7f, navy, subject,        55f,  192f, marksY);
                 // Speed WPM intentionally blank
-                drawCenteredTextInBox(cs, bold, 8f, navy, marksMax,      295f,  385f, marksY);
-                drawCenteredTextInBox(cs, bold, 8f, navy, marksMin,      385f,  470f, marksY);
-                drawCenteredTextInBox(cs, bold, 8f, navy, marksObtained, 470f,  577f, marksY);
+                drawCenteredTextInBox(cs, bold, 8f, navy, marksMax,      240f,  335f, marksY);
+                drawCenteredTextInBox(cs, bold, 8f, navy, marksMin,      335f,  440f, marksY);
+                drawCenteredTextInBox(cs, bold, 8f, navy, marksObtained, 440f,  545f, marksY);
 
                 // ── Student photo ─────────────────────────────────────
                 // Measured from scan: photo box center ≈ x=306, bottom edge y≈148
