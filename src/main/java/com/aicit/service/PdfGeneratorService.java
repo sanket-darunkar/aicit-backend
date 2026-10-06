@@ -143,7 +143,6 @@ public class PdfGeneratorService {
 
             PDFont bold   = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
             PDFont reg    = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
-            PDFont italic = new PDType1Font(Standard14Fonts.FontName.HELVETICA_OBLIQUE);
 
             String studentName   = buildFullName(cert);
             String instituteName = cert.getInstitute().getName().trim();
@@ -159,91 +158,87 @@ public class PdfGeneratorService {
                     ? cert.getIssueDate().format(DATE_FMT) : "";
             Integer duration = cert.getCourse().getDurationMonths();
 
+            Color navy = new Color(0, 51, 153);
+
+            // ── Layout reference (PDF coords, origin = bottom-left) ──
+            // Template pre-printed text (DO NOT re-draw these):
+            //   "This is to certify that,"               → y ≈ 530
+            //   "has passed the prescribed exam... Grade" → y ≈ 370 (cursive)
+            //   "has been awarded the"                    → y ≈ 340 (cursive)
+            //
+            // Blank areas to fill:
+            //   Student name      → centered, y ≈ 490  (big gap below "certify that,")
+            //   ATC / institute   → centered, y ≈ 465
+            //   Grade value       → on the dotted blank after "Grade", ≈ x 430, y 373
+            //   Marks value       → on the dotted blank after "with", ≈ x 340, y 373
+            //   Course name       → centered below "has been awarded the", y ≈ 318
+            //   Duration          → centered below course, y ≈ 304
+
             try (PDPageContentStream cs = new PDPageContentStream(
                     doc, page, AppendMode.APPEND, true, true)) {
 
-                // ── Student Photo (top-right box on the template) ─────
-                // Measured from scan: photo box is at approx x=432, y=563 pts from bottom,
-                // size 98 × 118 pts
-                if (cert.getStudent().getPhotoData() != null) {
-                    try {
-                        PDImageXObject photo = PDImageXObject.createFromByteArray(
-                                doc, cert.getStudent().getPhotoData(), "photo");
-                        cs.drawImage(photo, 432f, 563f, 98f, 118f);
-                    } catch (Exception e) {
-                        log.warn("Could not embed student photo for {}: {}", certNo, e.getMessage());
-                    }
+                // ── Student name (centered in the gap below "certify that,") ──
+                drawCenteredText(cs, bold, 18f, navy,
+                        studentName.toUpperCase(), W, 490f);
+
+                // ── ATC / institute line ──────────────────────────────
+                drawCenteredText(cs, bold, 9f, navy,
+                        atcLine, W, 465f);
+
+                // ── Fill the two dotted blanks on the pre-printed line ──
+                // Pre-printed cursive line 1 (baseline PDF y ≈ 366, measured):
+                //   "has passed ... examination with [BLANK1] Grade [BLANK2]"
+                //   BLANK1 (dots after "with")  → x ≈ 395–452 (marks)
+                //   BLANK2 (dots after "Grade") → x ≈ 503–585 (grade value)
+                float lineY = 368f;
+                if (!marks.isEmpty()) {
+                    drawCenteredTextInBox(cs, bold, 10f, navy,
+                            marks, 395f, 452f, lineY);
+                }
+                if (!grade.isEmpty()) {
+                    drawCenteredTextInBox(cs, bold, 11f, navy,
+                            grade, 503f, 585f, lineY);
                 }
 
-                // ── Student name ──────────────────────────────────────
-                // Measured: "ARYAN A. MESHRAM" sits at y ≈ 488 pts from bottom (57.9% of 841.89)
-                float nameY = 488f;
-                drawCenteredText(cs, bold, 18f,
-                        new Color(0, 51, 153),          // dark navy matching template
-                        studentName.toUpperCase(), W, nameY);
+                // ── Course name — in the empty band below the cursive block ──
+                // Line 2 "has been awarded the" baseline ≈ 330pt; the next
+                // pre-printed line "Design and developed..." starts ≈ 285pt.
+                // The clear band is ≈ 325–290pt → place course at 308pt.
+                drawCenteredText(cs, bold, 13f, navy,
+                        course.toUpperCase(), W, 308f);
 
-                // ── ATC line ─────────────────────────────────────────
-                // Measured: sits 24 pts below name → y ≈ 462
-                float atcY = 462f;
-                drawCenteredText(cs, bold, 9f,
-                        new Color(0, 51, 153),
-                        atcLine, W, atcY);
-
-                // ── Grade / marks line ────────────────────────────────
-                // "has passed the prescribed examination with ... Grade A+ (92%)"
-                // Measured: y ≈ 415
-                float gradeLineY = 415f;
-                String gradeMarks = "has passed the prescribed examination with ..........  Grade  "
-                        + grade
-                        + (marks.isEmpty() ? "" : "    (" + marks + ")");
-                drawCenteredText(cs, italic, 11f,
-                        new Color(185, 28, 28),
-                        gradeMarks, W, gradeLineY);
-
-                // ── "has been awarded the" ────────────────────────────
-                float awardY = 396f;
-                drawCenteredText(cs, italic, 11f,
-                        new Color(185, 28, 28),
-                        "has been awarded the", W, awardY);
-
-                // ── Course name ───────────────────────────────────────
-                float courseY = 374f;
-                drawCenteredText(cs, bold, 10f,
-                        new Color(0, 51, 153),
-                        course.toUpperCase(), W, courseY);
-
-                // ── Duration ─────────────────────────────────────────
+                // ── Duration (centered, below course name) ────────────
                 if (duration != null) {
-                    drawCenteredText(cs, reg, 7.5f,
+                    drawCenteredText(cs, reg, 8f,
                             Color.DARK_GRAY,
                             "(Course Duration : " + duration + " Months)",
-                            W, 358f);
+                            W, 296f);
                 }
 
-                // ── Certificate number & date (bottom-left) ───────────
-                // Measured from scan: cert no at y=75, date at y=60
+                // ── Certificate number (bottom-left) ──────────────────
                 cs.beginText();
                 cs.setFont(bold, 8f);
-                cs.setNonStrokingColor(new Color(30, 58, 138));
-                cs.newLineAtOffset(48f, 75f);
+                cs.setNonStrokingColor(navy);
+                cs.newLineAtOffset(48f, 68f);
                 cs.showText("Certificate No. : " + certNo);
                 cs.endText();
 
+                // ── Date of issue (bottom-left, below cert no) ────────
                 if (!issueDate.isEmpty()) {
                     cs.beginText();
                     cs.setFont(bold, 8f);
-                    cs.setNonStrokingColor(new Color(30, 58, 138));
-                    cs.newLineAtOffset(48f, 62f);
+                    cs.setNonStrokingColor(navy);
+                    cs.newLineAtOffset(48f, 55f);
                     cs.showText("Date of Issue     : " + issueDate);
                     cs.endText();
                 }
 
-                // ── QR code (bottom-right, near cert no) ─────────────
+                // ── QR code (bottom-right) ────────────────────────────
                 String verifyUrl = frontendUrl + "/verify/" + certNo;
                 try {
-                    byte[] qrBytes = generateQrCode(verifyUrl, 80);
+                    byte[] qrBytes = generateQrCode(verifyUrl, 100);
                     PDImageXObject qrImg = PDImageXObject.createFromByteArray(doc, qrBytes, "qr");
-                    cs.drawImage(qrImg, W - 108f, 42f, 72f, 72f);
+                    cs.drawImage(qrImg, W - 115f, 48f, 78f, 78f);
                 } catch (Exception e) {
                     log.warn("QR code generation failed for {}: {}", certNo, e.getMessage());
                 }
