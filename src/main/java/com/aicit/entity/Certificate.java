@@ -15,7 +15,9 @@ import java.time.LocalDateTime;
         @Index(name = "idx_cert_number",    columnList = "certificate_number", unique = true),
         @Index(name = "idx_cert_institute", columnList = "institute_id"),
         @Index(name = "idx_cert_student",   columnList = "student_id"),
-        @Index(name = "idx_cert_status",    columnList = "status")
+        @Index(name = "idx_cert_status",    columnList = "status"),
+        @Index(name = "idx_cert_batch",     columnList = "batch_id"),
+        @Index(name = "idx_cert_pay_status",columnList = "payment_status")
     })
 @EntityListeners(AuditingEntityListener.class)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -44,6 +46,21 @@ public class Certificate {
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "course_id", nullable = false)
     private Course course;
+
+    /** Payment batch this certificate belongs to. Null for legacy pre-payment certs. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "batch_id")
+    private CertificateBatch batch;
+
+    /** Price for this certificate (Rs.250). Server-computed, never from client. */
+    @Column(nullable = false, precision = 10, scale = 2)
+    @Builder.Default
+    private java.math.BigDecimal amount = new java.math.BigDecimal("250");
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", nullable = false, length = 30)
+    @Builder.Default
+    private PaymentStatus paymentStatus = PaymentStatus.PENDING;
 
     @Column(length = 20)
     private String marks;

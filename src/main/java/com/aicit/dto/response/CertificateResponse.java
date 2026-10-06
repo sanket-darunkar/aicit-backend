@@ -24,6 +24,11 @@ public class CertificateResponse {
     private String        status;
     private String        rejectionReason;
     private LocalDateTime reviewedAt;
+    // Payment / batch
+    private java.math.BigDecimal amount;
+    private String        paymentStatus;
+    private Long          batchId;
+    private String        batchCode;
     private boolean       hasPdf;
     private LocalDateTime pdfGeneratedAt;
     private LocalDateTime revokedAt;
@@ -47,6 +52,10 @@ public class CertificateResponse {
                 .status(c.getStatus().name())
                 .rejectionReason(c.getRejectionReason())
                 .reviewedAt(c.getReviewedAt())
+                .amount(c.getAmount())
+                .paymentStatus(c.getPaymentStatus() != null ? c.getPaymentStatus().name() : null)
+                .batchId(c.getBatch() != null ? c.getBatch().getId() : null)
+                .batchCode(c.getBatch() != null ? c.getBatch().getBatchCode() : null)
                 .hasPdf(c.getPdfData() != null)
                 .pdfGeneratedAt(c.getPdfGeneratedAt())
                 .revokedAt(c.getRevokedAt())

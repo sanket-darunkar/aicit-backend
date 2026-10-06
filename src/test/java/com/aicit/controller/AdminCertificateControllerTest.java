@@ -330,6 +330,7 @@ class AdminCertificateControllerTest {
                 .marks("90/100")
                 .grade("A")
                 .status(Certificate.Status.REQUESTED)
+                .paymentStatus(com.aicit.entity.PaymentStatus.PAID)
                 .build();
         return certificateRepository.save(cert).getId();
     }

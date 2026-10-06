@@ -126,6 +126,13 @@ public class CertificateServiceImpl implements CertificateService {
             throw new IllegalStateException("Only REQUESTED or UNDER_REVIEW certificates can be approved.");
         }
 
+        // Payment gate — a certificate can only be approved after its payment is verified.
+        if (cert.getPaymentStatus() != PaymentStatus.PAID) {
+            throw new IllegalStateException(
+                "Payment must be verified (PAID) before this certificate can be approved. Current payment status: "
+                        + (cert.getPaymentStatus() == null ? "NONE" : cert.getPaymentStatus()));
+        }
+
         AdminUser admin = adminUserRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("AdminUser", adminId));
 

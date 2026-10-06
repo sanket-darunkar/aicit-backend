@@ -31,6 +31,13 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
     @Query("SELECT c.certificateNumber FROM Certificate c WHERE c.certificateNumber LIKE :prefix%")
     List<String> findCertNumbersByPrefix(@Param("prefix") String prefix);
 
+    // All certificates belonging to a batch
+    List<Certificate> findByBatchId(Long batchId);
+
+    // Count certs in a batch by status (used for batch GENERATED/COMPLETED transitions)
+    long countByBatchId(Long batchId);
+    long countByBatchIdAndStatus(Long batchId, Certificate.Status status);
+
     @Query("""
         SELECT c FROM Certificate c
         WHERE c.institute.id = :instituteId
@@ -44,7 +51,8 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
 
     @Query(value = """
         SELECT c.id, c.certificate_number, c.institute_id, c.student_id,
-               c.enrollment_id, c.course_id, c.marks, c.grade, c.issue_date,
+               c.enrollment_id, c.course_id, c.batch_id, c.amount, c.payment_status,
+               c.marks, c.grade, c.issue_date,
                c.status, c.rejection_reason, c.reviewed_by, c.reviewed_at,
                c.pdf_data, c.pdf_generated_at, c.revoked_at, c.revoke_reason,
                c.created_at, c.updated_at

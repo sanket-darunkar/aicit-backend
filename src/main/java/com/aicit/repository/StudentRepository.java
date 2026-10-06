@@ -15,6 +15,9 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     boolean existsByInstituteIdAndStudentId(Long instituteId, String studentId);
 
+    /** Institute-scoped lookup by the institute's own student code (used by bulk CSV) */
+    Optional<Student> findByInstituteIdAndStudentId(Long instituteId, String studentId);
+
     /** Institute-scoped lookup by PK — data fence enforced */
     Optional<Student> findByIdAndInstituteId(Long id, Long instituteId);
 

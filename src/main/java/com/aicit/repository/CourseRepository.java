@@ -13,4 +13,5 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
     List<Course> findByIsActiveTrueOrderByNameAsc();
     Page<Course> findByIsActiveTrue(Pageable pageable);
     boolean existsByCode(String code);
+    java.util.Optional<Course> findByCode(String code);
 }
