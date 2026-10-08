@@ -53,6 +53,10 @@ public class PdfGeneratorService {
     static final String TEMPLATE_AICIT  = "templates/certificates/aicit_certificate.pdf";
     static final String TEMPLATE_TYPING = "templates/certificates/aicit_typing_certificate.pdf";
 
+    // ── Signature image assets (optional — overlaid if present) ──
+    static final String SIGN_EXAM_EXEC      = "templates/certificates/sign_exam_executive.png";
+    static final String SIGN_HEAD_INSTITUTE = "templates/certificates/sign_head_institute.png";
+
     @Value("${app.frontend.url:http://localhost:5174}")
     private String frontendUrl;
 
@@ -161,59 +165,74 @@ public class PdfGeneratorService {
             Color navy = new Color(0, 51, 153);
 
             // ── Layout reference (PDF coords, origin = bottom-left) ──
-            // Template pre-printed text (DO NOT re-draw these):
-            //   "This is to certify that,"               → y ≈ 530
-            //   "has passed the prescribed exam... Grade" → y ≈ 370 (cursive)
-            //   "has been awarded the"                    → y ≈ 340 (cursive)
+            // Measured from the actual template raster (see positioning notes):
+            //   "Certificate" (red cursive)              → y ≈ 671
+            //   "This is to certify that,"               → baseline y ≈ 525
+            //   "has passed ... with ..... Grade ....."  → baseline y ≈ 352 (cursive)
+            //   "has been awarded the"                   → baseline y ≈ 314 (cursive)
+            //   "Design and developed as per..."         → baseline y ≈ 288
+            //   "EXAM EXECUTIVE" block                   → top line y ≈ 124
             //
-            // Blank areas to fill:
-            //   Student name      → centered, y ≈ 490  (big gap below "certify that,")
-            //   ATC / institute   → centered, y ≈ 465
-            //   Grade value       → on the dotted blank after "Grade", ≈ x 430, y 373
-            //   Marks value       → on the dotted blank after "with", ≈ x 340, y 373
-            //   Course name       → centered below "has been awarded the", y ≈ 318
-            //   Duration          → centered below course, y ≈ 304
+            // Blank areas to fill (confirmed against reference certificate):
+            //   Student name   → centered, y ≈ 495  (large gap below "certify that,")
+            //   ATC / institute→ centered, y ≈ 470
+            //   Student photo  → top-right of the blank band, x≈448 y≈475 (90×105)
+            //   Grade value    → dotted blank after "with",  centre x ≈ 418, y 352
+            //   Marks / %      → dotted blank after "Grade", centre x ≈ 542, y 352
+            //   Course name    → own line, centered, y ≈ 300 (above "Design and...")
+            //   Signature      → centered above "EXAM EXECUTIVE", x≈445 y≈138
 
             try (PDPageContentStream cs = new PDPageContentStream(
                     doc, page, AppendMode.APPEND, true, true)) {
 
+                // ── Student photo (top-right of the blank band) ───────
+                if (cert.getStudent().getPhotoData() != null) {
+                    try {
+                        PDImageXObject photo = PDImageXObject.createFromByteArray(
+                                doc, cert.getStudent().getPhotoData(), "photo");
+                        cs.drawImage(photo, 448f, 472f, 90f, 105f);
+                    } catch (Exception e) {
+                        log.warn("Could not embed student photo for {}: {}", certNo, e.getMessage());
+                    }
+                }
+
                 // ── Student name (centered in the gap below "certify that,") ──
-                drawCenteredText(cs, bold, 18f, navy,
-                        studentName.toUpperCase(), W, 490f);
+                drawCenteredText(cs, bold, 20f, navy,
+                        studentName.toUpperCase(), W, 495f);
 
                 // ── ATC / institute line ──────────────────────────────
-                drawCenteredText(cs, bold, 9f, navy,
-                        atcLine, W, 465f);
+                drawCenteredText(cs, bold, 10f, navy,
+                        atcLine, W, 470f);
 
                 // ── Fill the two dotted blanks on the pre-printed line ──
-                // Pre-printed cursive line 1 (baseline PDF y ≈ 366, measured):
-                //   "has passed ... examination with [BLANK1] Grade [BLANK2]"
-                //   BLANK1 (dots after "with")  → x ≈ 395–452 (marks)
-                //   BLANK2 (dots after "Grade") → x ≈ 503–585 (grade value)
-                float lineY = 368f;
-                if (!marks.isEmpty()) {
-                    drawCenteredTextInBox(cs, bold, 10f, navy,
-                            marks, 395f, 452f, lineY);
-                }
+                // Line reads: "has passed ... examination with [GRADE] Grade [MARKS/%]"
+                //   BLANK1 (dots after "with")  centre x ≈ 418 → grade value
+                //   BLANK2 (dots after "Grade") centre x ≈ 542 → marks / percentage
+                // (Order matches the official reference certificate.)
+                float lineY = 366f;
                 if (!grade.isEmpty()) {
-                    drawCenteredTextInBox(cs, bold, 11f, navy,
-                            grade, 503f, 585f, lineY);
+                    drawCenteredTextInBox(cs, bold, 13f, navy,
+                            grade, 388f, 452f, lineY);
+                }
+                if (!marks.isEmpty()) {
+                    drawCenteredTextInBox(cs, bold, 12f, navy,
+                            marks, 508f, 582f, lineY);
                 }
 
-                // ── Course name — in the empty band below the cursive block ──
-                // Line 2 "has been awarded the" baseline ≈ 330pt; the next
-                // pre-printed line "Design and developed..." starts ≈ 285pt.
-                // The clear band is ≈ 325–290pt → place course at 308pt.
-                drawCenteredText(cs, bold, 13f, navy,
-                        course.toUpperCase(), W, 308f);
+                // ── Course name — own line above "Design and developed..." ──
+                drawCenteredText(cs, bold, 12f, navy,
+                        course.toUpperCase(), W, 300f);
 
-                // ── Duration (centered, below course name) ────────────
+                // ── Duration (small, just below course name) ──────────
                 if (duration != null) {
-                    drawCenteredText(cs, reg, 8f,
+                    drawCenteredText(cs, reg, 7.5f,
                             Color.DARK_GRAY,
                             "(Course Duration : " + duration + " Months)",
-                            W, 296f);
+                            W, 290f);
                 }
+
+                // ── Exam Executive signature (above "EXAM EXECUTIVE") ──
+                drawSignature(doc, cs, SIGN_EXAM_EXEC, 392f, 132f, 106f, 42f, certNo);
 
                 // ── Certificate number (bottom-left) ──────────────────
                 cs.beginText();
@@ -233,12 +252,12 @@ public class PdfGeneratorService {
                     cs.endText();
                 }
 
-                // ── QR code (bottom-right) ────────────────────────────
+                // ── QR code (bottom-centre, in the open band) ─────────
                 String verifyUrl = frontendUrl + "/verify/" + certNo;
                 try {
                     byte[] qrBytes = generateQrCode(verifyUrl, 100);
                     PDImageXObject qrImg = PDImageXObject.createFromByteArray(doc, qrBytes, "qr");
-                    cs.drawImage(qrImg, W - 115f, 48f, 78f, 78f);
+                    cs.drawImage(qrImg, 92f, 150f, 74f, 74f);
                 } catch (Exception e) {
                     log.warn("QR code generation failed for {}: {}", certNo, e.getMessage());
                 }
@@ -309,37 +328,32 @@ public class PdfGeneratorService {
                 drawCenteredTextInBox(cs, bold, 7.5f, navy, atcName,  328f,  550f, idRowY);
 
                 // ── Student name — in the "WITHIN SIGNED" box ─────────
-                // Box starts at x ≈ 339 and extends right to ≈ 550;
-                // baseline pdf_y ≈ 480.
+                // Box spans x ≈ 342–552; vertical centre baseline pdf_y ≈ 480.
                 drawCenteredTextInBox(cs, bold, 13f, navy,
                         studentName.toUpperCase(), 342f, 552f, 480f);
 
                 // ── Location / month / grade rows ─────────────────────
-                // Two sub-lines (measured):
-                //   top:    "held at ______ ... Centre"            pdf_y ≈ 350
-                //   bottom: "in the month of ______ in ___ Grade"  pdf_y ≈ 333
-                // Labels end at: "held at"≈x140, "in the month of"≈x150,
-                // "in"(before Grade)≈x515.
+                // Measured sub-lines (origin = bottom-left):
+                //   top:    "held at ______            Centre"         baseline y ≈ 348
+                //   bottom: "in the month of ______  in ___ Grade"     baseline y ≈ 330
+                // Label right edges: "held at"≈x127, "in the month of"≈x143,
+                // "in"(before Grade)≈x390, "Centre/Grade" column starts ≈x535.
                 cs.beginText();
                 cs.setFont(bold, 9f);
                 cs.setNonStrokingColor(navy);
-                cs.newLineAtOffset(155f, 350f);
+                cs.newLineAtOffset(150f, 348f);
                 cs.showText(venue);
                 cs.endText();
 
                 cs.beginText();
                 cs.setFont(bold, 9f);
                 cs.setNonStrokingColor(navy);
-                cs.newLineAtOffset(160f, 333f);
+                cs.newLineAtOffset(160f, 330f);
                 cs.showText(month);
                 cs.endText();
 
-                cs.beginText();
-                cs.setFont(bold, 10f);
-                cs.setNonStrokingColor(navy);
-                cs.newLineAtOffset(525f, 333f);
-                cs.showText(grade);
-                cs.endText();
+                // Grade value sits between "in" (x≈390) and "Centre/Grade" (x≈535)
+                drawCenteredTextInBox(cs, bold, 11f, navy, grade, 405f, 525f, 330f);
 
                 // ── Marks table data row ──────────────────────────────
                 // Measured: data box row at pdf_y ≈ 288. Column borders at
@@ -373,6 +387,12 @@ public class PdfGeneratorService {
                     }
                 }
 
+                // ── Head-of-Institute signature (bottom-left) ────────
+                // Sits in the open space just above the pre-printed label
+                // "Signature of the Head of the Institute with Institution Seal".
+                // (The Exam-Executive signature is already baked into this template.)
+                drawSignature(doc, cs, SIGN_HEAD_INSTITUTE, 145f, 158f, 120f, 46f, certNo);
+
                 // ── Certificate number (bottom-right) ─────────────────
                 // Measured: "Certificate No. 26-63501" at bottom-right, y ≈ 28 pts
                 cs.beginText();
@@ -404,6 +424,31 @@ public class PdfGeneratorService {
         cs.newLineAtOffset(x, y);
         cs.showText(text);
         cs.endText();
+    }
+
+    /**
+     * Draw a signature image from the classpath at the given position/size.
+     * Silently skips if the asset is not present so certificates still
+     * generate when signature files have not been provided.
+     *
+     * @param x bottom-left X in PDF points
+     * @param y bottom-left Y in PDF points
+     * @param w target width in points
+     * @param h target height in points
+     */
+    private void drawSignature(PDDocument doc, PDPageContentStream cs, String classpath,
+                               float x, float y, float w, float h, String certNo) {
+        ClassPathResource res = new ClassPathResource(classpath);
+        if (!res.exists()) {
+            log.debug("Signature asset not found (skipping): {}", classpath);
+            return;
+        }
+        try (InputStream in = res.getInputStream()) {
+            PDImageXObject img = PDImageXObject.createFromByteArray(doc, in.readAllBytes(), "sig");
+            cs.drawImage(img, x, y, w, h);
+        } catch (Exception e) {
+            log.warn("Could not embed signature {} for {}: {}", classpath, certNo, e.getMessage());
+        }
     }
 
     /** Draw text centered within a horizontal band [x1, x2] at height y. */
