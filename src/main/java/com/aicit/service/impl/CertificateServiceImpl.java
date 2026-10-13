@@ -235,6 +235,29 @@ public class CertificateServiceImpl implements CertificateService {
     }
 
     @Override
+    @Transactional
+    public CertificateResponse regeneratePdf(Long certId, Long adminId) {
+        Certificate cert = findOrThrow(certId);
+        if (cert.getStatus() != Certificate.Status.ISSUED) {
+            throw new IllegalStateException("Only ISSUED certificates can be regenerated.");
+        }
+        AdminUser admin = adminUserRepository.findById(adminId)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminUser", adminId));
+
+        byte[] pdf = pdfGenerator.generateCertificatePdf(cert);  // uses current layout
+        cert.setPdfData(pdf);
+        cert.setPdfGeneratedAt(LocalDateTime.now());
+        Certificate saved = certificateRepository.save(cert);
+
+        auditLogService.logAdminAction(adminId, admin.getEmail(),
+                "CERT_REGENERATED", "Certificate", certId,
+                "Certificate " + cert.getCertificateNumber() + " PDF regenerated with current layout", null);
+
+        log.info("Certificate PDF regenerated: {}", cert.getCertificateNumber());
+        return CertificateResponse.from(saved);
+    }
+
+    @Override
     public byte[] adminDownloadPdf(Long certId) {
         Certificate cert = findOrThrow(certId);
         if (cert.getStatus() != Certificate.Status.ISSUED) {

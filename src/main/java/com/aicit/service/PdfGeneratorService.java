@@ -206,17 +206,23 @@ public class PdfGeneratorService {
 
                 // ── Fill the two dotted blanks on the pre-printed line ──
                 // Line reads: "has passed ... examination with [GRADE] Grade [MARKS/%]"
-                //   BLANK1 (dots after "with")  centre x ≈ 418 → grade value
-                //   BLANK2 (dots after "Grade") centre x ≈ 542 → marks / percentage
-                // (Order matches the official reference certificate.)
-                float lineY = 366f;
+                // Measured from the template raster (origin = bottom-left):
+                //   printed "with" ends  ≈ x 395; "Grade" word spans x 454–502.
+                //   BLANK1 (dots after "with")  → x band 398–452  → grade letter
+                //   BLANK2 (dots after "Grade") → x band 503–560  → marks / percentage
+                // The dotted rule sits at baseline y ≈ 365; place the values a few
+                // points ABOVE it so they rest ON the line instead of striking through.
+                float lineY = 369f;
                 if (!grade.isEmpty()) {
                     drawCenteredTextInBox(cs, bold, 13f, navy,
-                            grade, 388f, 452f, lineY);
+                            grade, 398f, 452f, lineY);
                 }
                 if (!marks.isEmpty()) {
-                    drawCenteredTextInBox(cs, bold, 12f, navy,
-                            marks, 508f, 582f, lineY);
+                    // The marks blank is short; use a smaller size so values like
+                    // "92/100" fit cleanly within the dotted band without overflow.
+                    float marksSize = marks.length() > 4 ? 9.5f : 11f;
+                    drawCenteredTextInBox(cs, bold, marksSize, navy,
+                            marks, 503f, 560f, lineY);
                 }
 
                 // ── Course name — own line above "Design and developed..." ──
@@ -317,12 +323,13 @@ public class PdfGeneratorService {
                     doc, page, AppendMode.APPEND, true, true)) {
 
                 // ── Student ID / Center Code / ATC row ────────────────
-                // Measured: input boxes sit at pdf_y ≈ 505. Box left edges at
-                // x = 62, 192, 328; right edge ≈ 550.
+                // Measured: the three input boxes span pdf_y 513 (bottom border)
+                // to 542 (top border). Baseline 521 vertically centres the text
+                // within the box instead of sitting on the bottom rule.
                 //   Col1 (Student ID):  box 62–192  (center 127)
                 //   Col2 (Center Code): box 192–328 (center 260)
                 //   Col3 (ATC Name):    box 328–550 (center 439)
-                float idRowY = 513f;
+                float idRowY = 521f;
                 drawCenteredTextInBox(cs, bold, 9f, navy, studentId,   62f,  192f, idRowY);
                 drawCenteredTextInBox(cs, bold, 9f, navy, centerCode, 192f,  328f, idRowY);
                 drawCenteredTextInBox(cs, bold, 7.5f, navy, atcName,  328f,  550f, idRowY);
@@ -356,15 +363,16 @@ public class PdfGeneratorService {
                 drawCenteredTextInBox(cs, bold, 11f, navy, grade, 405f, 525f, 330f);
 
                 // ── Marks table data row ──────────────────────────────
-                // Measured: data box row at pdf_y ≈ 288. Column borders at
-                // x = 192, 240, 335, 440, 545 (table edges ≈ 55 and 545):
-                //   Subject (col1):        55–192
+                // Measured column borders: x = 62, 192, 240, 335, 440, 545.
+                // The data row is bounded by horizontal rules at pdf_y 297 (top)
+                // and 266 (bottom); baseline 275 centres text within that cell.
+                //   Subject (col1):        62–192
                 //   Speed WPM (col2):     192–240  → blank (not stored)
                 //   Max Marks (col3):     240–335
                 //   Min Marks (col4):     335–440
                 //   Marks Obtained (col5):440–545
-                float marksY = 288f;
-                drawCenteredTextInBox(cs, bold, 7f, navy, subject,        55f,  192f, marksY);
+                float marksY = 275f;
+                drawCenteredTextInBox(cs, bold, 7f, navy, subject,        62f,  192f, marksY);
                 // Speed WPM intentionally blank
                 drawCenteredTextInBox(cs, bold, 8f, navy, marksMax,      240f,  335f, marksY);
                 drawCenteredTextInBox(cs, bold, 8f, navy, marksMin,      335f,  440f, marksY);

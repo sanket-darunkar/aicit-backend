@@ -25,6 +25,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -93,6 +94,15 @@ public class AdminCertificateController {
                 certService.revoke(id, getAdminId(auth), req)));
     }
 
+    @PostMapping("/certificates/{id}/regenerate")
+    @Operation(summary = "Regenerate an issued certificate's PDF with the current layout")
+    public ResponseEntity<ApiResponse<CertificateResponse>> regenerate(
+            @PathVariable Long id,
+            Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.success("Certificate PDF regenerated",
+                certService.regeneratePdf(id, getAdminId(auth))));
+    }
+
     @GetMapping("/certificates/{id}/download")
     @Operation(summary = "Download certificate PDF (admin)")
     public ResponseEntity<byte[]> download(@PathVariable Long id) {
@@ -104,6 +114,22 @@ public class AdminCertificateController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + cert.getCertificateNumber() + ".pdf\"")
                 .body(pdf);
+    }
+
+    // ── Mail Diagnostics ──────────────────────────────────────
+
+    @PostMapping("/mail/test")
+    @Operation(summary = "Send a diagnostic test email",
+               description = "Sends a test message to the given address and returns the transport outcome. " +
+                             "Used to diagnose delivery problems. Never exposes credentials.")
+    public ResponseEntity<ApiResponse<String>> testMail(@RequestBody Map<String, String> body) {
+        String to = body == null ? null : body.getOrDefault("to", "").trim();
+        if (to == null || to.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("A 'to' email address is required.", "VALIDATION_ERROR"));
+        }
+        String result = emailService.sendTest(to);
+        return ResponseEntity.ok(ApiResponse.success("Mail diagnostic completed", result));
     }
 
     // ── Password Reset ────────────────────────────────────────

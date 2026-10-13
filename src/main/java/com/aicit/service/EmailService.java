@@ -56,11 +56,49 @@ public class EmailService {
     @Value("${brevo.api-key:}")
     private String brevoApiKey;
 
+    // SMTP credentials — only used to detect misconfiguration at startup
+    // (never logged). When SMTP is the active transport but the password is
+    // blank, delivery will silently fail, so we warn loudly instead.
+    @Value("${spring.mail.password:}")
+    private String smtpPassword;
+
+    @Value("${spring.mail.host:}")
+    private String smtpHost;
+
     private static final String BREVO_URL = "https://api.brevo.com/v3/smtp/email";
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Startup self-check. Logs the resolved mail configuration — WITHOUT ever
+     * printing secrets — so delivery problems can be diagnosed from the boot
+     * log alone. This is the first thing to check when "emails aren't arriving".
+     */
+    @jakarta.annotation.PostConstruct
+    void logMailConfig() {
+        if (!mailEnabled) {
+            log.warn("MAIL DISABLED (app.mail.enabled=false). No emails will be sent. " +
+                    "Set MAIL_ENABLED=true to enable delivery.");
+            return;
+        }
+        boolean brevo = brevoApiKey != null && !brevoApiKey.isBlank();
+        if (brevo) {
+            log.info("MAIL ENABLED — transport=BREVO (HTTPS API). from='{}' <{}>. " +
+                    "Ensure this sender/domain is VERIFIED in Brevo or messages will be rejected.",
+                    fromName, fromAddress);
+        } else {
+            log.info("MAIL ENABLED — transport=SMTP host={}:{} user={}. ",
+                    smtpHost, "(port from spring.mail.port)", fromAddress);
+            if (smtpPassword == null || smtpPassword.isBlank()) {
+                log.error("SMTP password is EMPTY — authentication will fail and no mail will be delivered. " +
+                        "Set MAIL_PASSWORD, or configure BREVO_API_KEY to use the Brevo HTTPS API instead.");
+            }
+            log.warn("SMTP transport selected. On hosts that block outbound SMTP ports (e.g. Render), " +
+                    "delivery will time out. Set BREVO_API_KEY to switch to the HTTPS API (port 443).");
+        }
+    }
 
     // ── Institute approval ────────────────────────────────────
 
@@ -231,6 +269,37 @@ public class EmailService {
         send(to, subject, body);
     }
 
+    /**
+     * Synchronous diagnostic send used by the admin "test email" endpoint.
+     * Returns a human-readable status string describing the transport and
+     * outcome — WITHOUT exposing any credentials — so delivery problems can be
+     * diagnosed from the admin UI instead of trawling server logs.
+     */
+    public String sendTest(String to) {
+        String subject = "AICIT – Mail Delivery Test";
+        String body = "This is a test message from the AICIT platform mail service. "
+                + "If you received this, email delivery is working.";
+
+        if (!mailEnabled) {
+            return "DISABLED: app.mail.enabled is false. Set MAIL_ENABLED=true to send email.";
+        }
+        boolean brevo = brevoApiKey != null && !brevoApiKey.isBlank();
+        if (brevo) {
+            return "BREVO: " + sendViaBrevoReporting(to, subject, body);
+        }
+        if (smtpPassword == null || smtpPassword.isBlank()) {
+            return "SMTP: password not configured (MAIL_PASSWORD empty) — set MAIL_PASSWORD "
+                    + "or configure BREVO_API_KEY. No email sent.";
+        }
+        try {
+            sendViaSmtp(to, subject, body);
+            return "SMTP: handed to " + smtpHost + ". If not received, the host may block SMTP ports "
+                    + "(use BREVO_API_KEY) or credentials/sender may be invalid.";
+        } catch (Exception e) {
+            return "SMTP: failed — " + e.getMessage();
+        }
+    }
+
     private void send(String to, String subject, String body) {
         if (!mailEnabled) {
             // NOTE: never log the body — welcome/reset emails contain plaintext passwords.
@@ -248,6 +317,14 @@ public class EmailService {
 
     /** Send email through the Brevo transactional email HTTPS API (port 443). */
     private void sendViaBrevo(String to, String subject, String body) {
+        sendViaBrevoReporting(to, subject, body);
+    }
+
+    /**
+     * Brevo send that returns a status string (used by both the async path and
+     * the diagnostic test endpoint). Never includes the API key in the result.
+     */
+    private String sendViaBrevoReporting(String to, String subject, String body) {
         try {
             Map<String, Object> sender = new LinkedHashMap<>();
             sender.put("name",  fromName);
@@ -277,12 +354,15 @@ public class EmailService {
 
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 log.info("Email sent via Brevo to {} — {}", to, subject);
-            } else {
-                log.error("Brevo API failed for {} — HTTP {} : {}",
-                        to, response.statusCode(), response.body());
+                return "sent (HTTP " + response.statusCode() + ")";
             }
+            // Brevo returns a JSON error body (e.g. unverified sender, bad key).
+            log.error("Brevo API failed for {} — HTTP {} : {}",
+                    to, response.statusCode(), response.body());
+            return "FAILED HTTP " + response.statusCode() + " — " + response.body();
         } catch (Exception e) {
             log.error("Failed to send email via Brevo to {}: {}", to, e.getMessage());
+            return "ERROR — " + e.getMessage();
         }
     }
 
