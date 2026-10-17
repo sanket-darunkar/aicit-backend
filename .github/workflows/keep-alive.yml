@@ -1,0 +1,35 @@
+name: Keep Render service awake
+
+# Render's free tier sleeps a service after ~15 min of inactivity, and the
+# cold start takes ~2.5 min — long enough that the first login request times
+# out. This workflow pings the public health endpoint on a schedule so the
+# service never goes to sleep.
+
+on:
+  schedule:
+    # Every 10 minutes. (GitHub cron is UTC and best-effort; it may run a few
+    # minutes late under load, which is fine for a 15-min sleep window.)
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}   # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          URL="https://aicit-backend.onrender.com/api/public/health"
+          echo "Pinging $URL"
+          # Retry a few times to cover the case where the service is mid-cold-start.
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "$URL" || echo "000")
+            echo "Attempt $attempt → HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Service is awake."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Health check did not return 200 after retries."
+          # Do not fail the workflow — a transient miss shouldn't spam failure emails.
+          exit 0
