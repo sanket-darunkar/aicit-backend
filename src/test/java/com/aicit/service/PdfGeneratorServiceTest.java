@@ -66,7 +66,7 @@ class PdfGeneratorServiceTest {
         "Advanced Tally Prime with GST",
         "Certificate in Hardware & Networking",
         "DCA – Diploma in Computer Applications",
-        "MS-CIT"
+        "Course on Computer Concepts (CCC)"
     })
     @DisplayName("isTypingCourse: normal course names → false")
     void isTypingCourse_normalNames_returnsFalse(String courseName) {

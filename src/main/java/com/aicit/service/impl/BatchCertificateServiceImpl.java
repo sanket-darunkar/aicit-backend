@@ -491,8 +491,8 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
     @Override
     public byte[] csvTemplate() {
         String csv = "studentId,courseCode,marks,grade\n"
-                + "INST001-2026-001,MSCIT,88,A\n"
-                + "INST001-2026-002,DCA,75,B\n";
+                + "INST001-2026-001,DCA,88,A\n"
+                + "INST001-2026-002,CCC,75,B\n";
         return csv.getBytes(StandardCharsets.UTF_8);
     }
 
