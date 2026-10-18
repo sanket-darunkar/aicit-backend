@@ -77,6 +77,7 @@ public class CertificateServiceImpl implements CertificateService {
     }
 
     @Override
+    @Transactional(readOnly = true)   // keep session open so lazy institute/student/course map safely
     public PagedResponse<CertificateResponse> listByInstitute(Long instituteId, String status,
                                                                 int page, int size) {
         Certificate.Status statusEnum = parseStatus(status);
@@ -86,6 +87,7 @@ public class CertificateServiceImpl implements CertificateService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public CertificateResponse getByInstitute(Long instituteId, Long certId) {
         return CertificateResponse.from(findByInstituteOrThrow(instituteId, certId));
     }
@@ -102,6 +104,7 @@ public class CertificateServiceImpl implements CertificateService {
     // ── Admin ─────────────────────────────────────────────────
 
     @Override
+    @Transactional(readOnly = true)   // keep session open so lazy institute/student/course map safely
     public PagedResponse<CertificateResponse> listAll(String status, String search,
                                                        int page, int size) {
         String statusStr = StringUtils.hasText(status) ? status.toUpperCase() : null;
@@ -112,6 +115,7 @@ public class CertificateServiceImpl implements CertificateService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public CertificateResponse adminGet(Long certId) {
         return CertificateResponse.from(findOrThrow(certId));
     }
