@@ -48,8 +48,10 @@ public class EmailService {
     @Value("${app.mail.from-name:AICIT}")
     private String fromName;
 
-    // Used in email links — points to the public website (not the CORS origin)
-    @Value("${app.api.base-url:https://aicit.org.in}")
+    // Used in email links (portal login, verify URL) — must point to the public
+    // FRONTEND site, not the backend API. Bound to app.frontend.url (same value
+    // PdfGeneratorService uses for the certificate verify link).
+    @Value("${app.frontend.url:https://aicit.org.in}")
     private String frontendUrl;
 
     // Absolute, internet-reachable logo URL for the email header. Email clients
