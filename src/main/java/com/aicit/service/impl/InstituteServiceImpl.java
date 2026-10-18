@@ -44,9 +44,19 @@ public class InstituteServiceImpl implements InstituteService {
     private final AuditLogService         auditLogService;
 
     // ── Institute Code Generator ─────────────────────────────
+    // Derive the next code from the highest EXISTING suffix (not row count),
+    // then skip any already-taken codes. This is robust to deletions and to
+    // the historical count/row drift that caused "duplicate key
+    // uq_institute_code" errors on registration.
     private String generateInstituteCode() {
-        long count = instituteRepository.count() + 1;
-        return String.format("AICIT-INST-%04d", count);
+        int next = instituteRepository.findMaxInstituteCodeSuffix() + 1;
+        String code = String.format("AICIT-INST-%04d", next);
+        // Defensive guard against any residual gaps/races: advance past taken codes.
+        while (instituteRepository.existsByInstituteCode(code)) {
+            next++;
+            code = String.format("AICIT-INST-%04d", next);
+        }
+        return code;
     }
 
     @Override
