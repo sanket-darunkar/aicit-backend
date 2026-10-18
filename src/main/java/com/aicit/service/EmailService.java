@@ -48,10 +48,15 @@ public class EmailService {
     @Value("${app.mail.from-name:AICIT}")
     private String fromName;
 
-    // Used in email links (portal login, verify URL) — must point to the public
-    // FRONTEND site, not the backend API. Bound to app.frontend.url (same value
-    // PdfGeneratorService uses for the certificate verify link).
+    // Raw value of app.frontend.url. This property is ALSO used for CORS, where
+    // it may legitimately be a comma-separated list of origins
+    // (e.g. "https://aicit.org.in,https://www.aicit.org.in"). For email links we
+    // need ONE clean base URL, so the raw value is normalized in init() below.
     @Value("${app.frontend.url:https://aicit.org.in}")
+    private String frontendUrlRaw;
+
+    // Normalized single base URL used to build all email links (portal, verify).
+    // Derived from frontendUrlRaw: first entry if a list, no trailing slash.
     private String frontendUrl;
 
     // Absolute, internet-reachable logo URL for the email header. Email clients
@@ -86,6 +91,13 @@ public class EmailService {
      */
     @jakarta.annotation.PostConstruct
     void logMailConfig() {
+        // Normalize the frontend base URL for email links. app.frontend.url may
+        // be a comma-separated CORS origin list; take the first entry and strip
+        // any trailing slash so links render as e.g.
+        // "https://aicit.org.in/institute/login" (not a concatenated list).
+        this.frontendUrl = normalizeBaseUrl(frontendUrlRaw);
+        log.info("Email link base URL resolved to: {}", frontendUrl);
+
         if (!mailEnabled) {
             log.warn("MAIL DISABLED (app.mail.enabled=false). No emails will be sent. " +
                     "Set MAIL_ENABLED=true to enable delivery.");
@@ -337,6 +349,20 @@ public class EmailService {
     private static final String IVORY = "#fbf7ec";
     private static final String INK   = "#1f2937";
     private static final String MUTED = "#6b7280";
+
+    /**
+     * Reduce a possibly comma-separated origin list to a single clean base URL
+     * for building links: first entry, trimmed, trailing slash removed. Falls
+     * back to the production site if the value is blank.
+     */
+    static String normalizeBaseUrl(String raw) {
+        String v = (raw == null) ? "" : raw.trim();
+        if (v.isEmpty()) return "https://aicit.org.in";
+        int comma = v.indexOf(',');
+        if (comma >= 0) v = v.substring(0, comma).trim();
+        while (v.endsWith("/")) v = v.substring(0, v.length() - 1);
+        return v.isEmpty() ? "https://aicit.org.in" : v;
+    }
 
     /** HTML-escape a dynamic value so names/reasons can't break the markup. */
     private static String esc(String s) {
