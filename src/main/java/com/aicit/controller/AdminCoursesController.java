@@ -33,11 +33,55 @@ public class AdminCoursesController {
     private final CourseRepository courseRepository;
 
     @GetMapping
-    @Operation(summary = "List all courses")
+    @Operation(summary = "List all courses (unpaged — legacy; prefer /search)")
     public ResponseEntity<ApiResponse<List<CourseResponse>>> list() {
         List<CourseResponse> courses = courseRepository.findAll().stream()
                 .map(CourseResponse::from).toList();
         return ResponseEntity.ok(ApiResponse.success("Courses retrieved", courses));
+    }
+
+    @GetMapping("/search")
+    @Operation(summary = "Search courses (paginated, filterable, sortable)")
+    public ResponseEntity<ApiResponse<PagedResponse<CourseResponse>>> search(
+            @RequestParam(required = false) String  search,
+            @RequestParam(required = false) String  category,
+            @RequestParam(required = false) Boolean active,
+            @RequestParam(defaultValue = "name") String sort,
+            @RequestParam(defaultValue = "asc")  String direction,
+            @RequestParam(defaultValue = "0")    int page,
+            @RequestParam(defaultValue = "20")   int size) {
+        String s   = (search   != null && !search.isBlank())   ? search.trim()   : null;
+        String cat = (category != null && !category.isBlank()) ? category.trim() : null;
+        // Whitelist sortable fields to prevent arbitrary property injection
+        String sortField = switch (sort) {
+            case "duration" -> "durationDays";
+            case "code"     -> "code";
+            case "category" -> "category";
+            case "created"  -> "createdAt";
+            default         -> "name";
+        };
+        org.springframework.data.domain.Sort.Direction dir =
+                "desc".equalsIgnoreCase(direction)
+                        ? org.springframework.data.domain.Sort.Direction.DESC
+                        : org.springframework.data.domain.Sort.Direction.ASC;
+        int safeSize = Math.min(Math.max(size, 1), 100);   // cap page size
+        var pageable = org.springframework.data.domain.PageRequest.of(
+                Math.max(page, 0), safeSize,
+                org.springframework.data.domain.Sort.by(dir, sortField));
+        var result = courseRepository.search(s, cat, active, pageable).map(CourseResponse::from);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Courses retrieved", PagedResponse.from(result)));
+    }
+
+    @GetMapping("/stats")
+    @Operation(summary = "Course counts (total / active / inactive) and categories")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> stats() {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("total",      courseRepository.count());
+        m.put("active",     courseRepository.countByIsActiveTrue());
+        m.put("inactive",   courseRepository.countByIsActiveFalse());
+        m.put("categories", courseRepository.findDistinctCategories());
+        return ResponseEntity.ok(ApiResponse.success("Course stats", m));
     }
 
     @PostMapping
@@ -51,6 +95,8 @@ public class AdminCoursesController {
                 .code(req.getCode().toUpperCase())
                 .description(req.getDescription())
                 .durationMonths(req.getDurationMonths())
+                .durationLabel(req.getDurationLabel())
+                .durationDays(req.getDurationDays())
                 .category(req.getCategory())
                 .isActive(true)
                 .build();
@@ -67,6 +113,8 @@ public class AdminCoursesController {
         if (req.getName()          != null) course.setName(req.getName());
         if (req.getDescription()   != null) course.setDescription(req.getDescription());
         if (req.getDurationMonths()!= null) course.setDurationMonths(req.getDurationMonths());
+        if (req.getDurationLabel() != null) course.setDurationLabel(req.getDurationLabel());
+        if (req.getDurationDays()  != null) course.setDurationDays(req.getDurationDays());
         if (req.getCategory()      != null) course.setCategory(req.getCategory());
         return ResponseEntity.ok(ApiResponse.success("Course updated",
                 CourseResponse.from(courseRepository.save(course))));
@@ -90,6 +138,8 @@ public class AdminCoursesController {
         private String  code;
         private String  description;
         private Integer durationMonths;
+        private String  durationLabel;
+        private Integer durationDays;
         private String  category;
     }
 }

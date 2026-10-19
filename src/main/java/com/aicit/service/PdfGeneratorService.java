@@ -136,8 +136,12 @@ public class PdfGeneratorService {
             String marks    = safe(cert.getMarks());
             String studentId= safe(cert.getStudent().getStudentId());
             String issue    = cert.getIssueDate() != null ? cert.getIssueDate().format(DATE_FMT) : "";
-            Integer months  = cert.getCourse().getDurationMonths();
-            String duration = months != null ? months + " Months" : "";
+            // Prefer the raw catalog duration label (covers DAYS/HOURS/fractional
+            // months); fall back to "<n> Months" for legacy courses with only months.
+            String duration = safe(cert.getCourse().getDurationLabel());
+            if (duration.isEmpty() && cert.getCourse().getDurationMonths() != null) {
+                duration = cert.getCourse().getDurationMonths() + " Months";
+            }
             String atcName  = safe(cert.getInstitute().getName()).toUpperCase();
             String atcCity  = safe(cert.getInstitute().getCity()).toUpperCase();
 

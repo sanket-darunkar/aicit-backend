@@ -37,6 +37,18 @@ public class Course {
     @Column(name = "duration_months")
     private Integer durationMonths;
 
+    /** Raw human duration exactly as in the source catalog (e.g. "45 DAYS", "1.5 MONTHS"). */
+    @Column(name = "duration_label", length = 40)
+    private String durationLabel;
+
+    /** Normalized duration in days, for sorting/filtering across mixed units. */
+    @Column(name = "duration_days")
+    private Integer durationDays;
+
+    /** Source serial number from the catalog (reference only, not the PK). */
+    @Column(name = "source_sr_no")
+    private Integer sourceSrNo;
+
     @Column(length = 100)
     private String category;
 

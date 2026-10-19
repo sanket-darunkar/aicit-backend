@@ -6,6 +6,7 @@ import com.aicit.dto.response.ApiResponse;
 import com.aicit.dto.response.CertificateResponse;
 import com.aicit.dto.response.CourseResponse;
 import com.aicit.dto.response.InstituteResponse;
+import com.aicit.dto.response.PagedResponse;
 import com.aicit.entity.Certificate;
 import com.aicit.entity.InstituteUser;
 import com.aicit.exception.ResourceNotFoundException;
@@ -103,6 +104,38 @@ public class PublicController {
         List<CourseResponse> courses = courseRepository.findByIsActiveTrueOrderByNameAsc()
                 .stream().map(CourseResponse::from).toList();
         return ResponseEntity.ok(ApiResponse.success("Courses retrieved", courses));
+    }
+
+    @GetMapping("/courses/search")
+    @Operation(summary = "Search active courses (paginated, filterable, sortable)")
+    public ResponseEntity<ApiResponse<PagedResponse<CourseResponse>>> searchCourses(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(defaultValue = "name") String sort,
+            @RequestParam(defaultValue = "asc")  String direction,
+            @RequestParam(defaultValue = "0")    int page,
+            @RequestParam(defaultValue = "20")   int size) {
+        String s   = (search   != null && !search.isBlank())   ? search.trim()   : null;
+        String cat = (category != null && !category.isBlank()) ? category.trim() : null;
+        String sortField = switch (sort) {
+            case "duration" -> "durationDays";
+            case "code"     -> "code";
+            case "category" -> "category";
+            default         -> "name";
+        };
+        org.springframework.data.domain.Sort.Direction dir =
+                "desc".equalsIgnoreCase(direction)
+                        ? org.springframework.data.domain.Sort.Direction.DESC
+                        : org.springframework.data.domain.Sort.Direction.ASC;
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        var pageable = org.springframework.data.domain.PageRequest.of(
+                Math.max(page, 0), safeSize,
+                org.springframework.data.domain.Sort.by(dir, sortField));
+        // Public search is restricted to ACTIVE courses only.
+        var result = courseRepository.search(s, cat, Boolean.TRUE, pageable)
+                .map(CourseResponse::from);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Courses retrieved", PagedResponse.from(result)));
     }
 
     // ── Institute Registration ────────────────────────────────
