@@ -1,16 +1,21 @@
 package com.aicit.service;
 
 import com.aicit.entity.Certificate;
+import com.aicit.service.CertificateLayout.Align;
+import com.aicit.service.CertificateLayout.FieldSpec;
+import com.aicit.service.CertificateLayout.FontRole;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
@@ -21,54 +26,65 @@ import org.springframework.stereotype.Service;
 import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Certificate PDF generation service.
  *
- * <p>Uses Apache PDFBox to draw the official AICIT certificate artwork (a blank
- * PNG template designed in a graphics tool) as a full-page background, then
- * overlays the student / certificate specific data (name, photo, marks, grade,
- * certificate number, issue date, QR code, ATC, etc.) at positions expressed as
- * fractions of the page — so the layout tracks the artwork regardless of its
- * exact pixel size.
+ * <p>Draws the official AICIT certificate artwork (a blank PNG template) as a
+ * full-page background, then overlays the student/certificate specific data at
+ * positions defined declaratively in {@link CertificateLayout}. Positions are
+ * fractions of the page so the layout tracks the artwork regardless of the
+ * exact pixel size; PDFBox's bottom-left origin conversion is handled centrally.
  *
- * <p><b>Templates (classpath:templates/certificates/):</b>
- * <ul>
- *   <li>{@code GeneralCertificateTemplate.png} — Certificate of Achievement (all normal courses)</li>
- *   <li>{@code TypingTemplate.png}             — Computer Based Typing Examination (typing courses)</li>
- * </ul>
+ * <p>Typography uses embedded serif fonts (Playfair Display for display
+ * names/titles, EB Garamond for body serif) to match the reference designs,
+ * plus Standard-14 Helvetica for compact data fields. Font size, colour,
+ * alignment and max width are per-field (see CertificateLayout), and long
+ * names / course titles auto-shrink (and the course banner also wraps) to fit.
  *
- * <p>Routing is driven by the course name: any name containing "typing"
- * (case-insensitive) uses the typing template; all others use the general one.
- *
- * <p>Signatures, badges, ISO seal, labels and grade-system footer are already
- * baked into the PNG artwork — this service only overlays dynamic values and
- * never fabricates data (blank/absent fields are simply not drawn).
+ * <p>Routing: course names containing "typing" use the typing template; all
+ * others use the general (achievement) template. Signatures, badges, seal,
+ * labels and footers are baked into the artwork — this service only overlays
+ * dynamic values and never fabricates data (blank fields are not drawn).
  */
 @Service
 @Slf4j
 public class PdfGeneratorService {
 
-    // ── Template classpath paths (blank artwork PNGs) ─────────
     static final String TEMPLATE_GENERAL = "templates/certificates/GeneralCertificateTemplate.png";
     static final String TEMPLATE_TYPING  = "templates/certificates/TypingTemplate.png";
+
+    static final String FONT_SERIF_BOLD = "fonts/PlayfairDisplay-Bold.ttf";
+    static final String FONT_SERIF      = "fonts/EBGaramond-Regular.ttf";
 
     @Value("${app.frontend.url:https://aicit.org.in}")
     private String frontendUrl;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
-    // Brand colours sampled from the artwork
-    private static final Color NAVY = new Color(11, 27, 64);
-    private static final Color GOLD = new Color(176, 132, 46);
+    // Cached raw font bytes (loaded once; PDType0Font must be created per-document).
+    private byte[] serifBoldBytes;
+    private byte[] serifBytes;
+
+    @PostConstruct
+    void loadFontBytes() {
+        serifBoldBytes = readClasspath(FONT_SERIF_BOLD);
+        serifBytes     = readClasspath(FONT_SERIF);
+        if (serifBoldBytes == null)
+            log.warn("Serif-bold font {} not found — will fall back to Helvetica-Bold.", FONT_SERIF_BOLD);
+    }
 
     // =========================================================
-    //  Public enums / helpers (unchanged API)
+    //  Public API (unchanged)
     // =========================================================
 
     public enum CertificateType { AICIT, TYPING }
@@ -82,100 +98,93 @@ public class PdfGeneratorService {
         return courseName.toLowerCase(Locale.ROOT).contains("typing");
     }
 
-    // =========================================================
-    //  Main entry point (unchanged signature)
-    // =========================================================
-
     public byte[] generateCertificatePdf(Certificate cert) {
         validate(cert);
-
         CertificateType type = detectType(cert.getCourse().getName());
         String templatePath  = (type == CertificateType.TYPING) ? TEMPLATE_TYPING : TEMPLATE_GENERAL;
 
         if (!new ClassPathResource(templatePath).exists()) {
-            throw new RuntimeException(
-                "Certificate template not found on classpath: " + templatePath +
-                ". Place the PNG template at src/main/resources/" + templatePath);
+            throw new RuntimeException("Certificate template not found on classpath: " + templatePath);
         }
-
         log.info("Generating {} certificate for {} — template={}",
                 type, cert.getCertificateNumber(), templatePath);
-
         try {
-            return (type == CertificateType.TYPING)
-                    ? generateTyping(cert)
-                    : generateGeneral(cert);
+            return (type == CertificateType.TYPING) ? generateTyping(cert) : generateGeneral(cert);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException(
-                    "PDF generation failed for " + cert.getCertificateNumber() + ": " + e.getMessage(), e);
+                "PDF generation failed for " + cert.getCertificateNumber() + ": " + e.getMessage(), e);
         }
     }
 
     // =========================================================
-    //  GENERAL — "Certificate of Achievement"
-    //  Positions are fractions of page W/H, origin TOP-LEFT
-    //  (converted to PDFBox bottom-left via ty()).
+    //  Per-document font set
+    // =========================================================
+
+    private static final class Fonts {
+        PDFont serifBold, serif, sansBold, sans;
+        PDFont of(FontRole role) {
+            return switch (role) {
+                case SERIF_BOLD -> serifBold;
+                case SERIF      -> serif;
+                case SANS_BOLD  -> sansBold;
+                case SANS       -> sans;
+            };
+        }
+    }
+
+    private Fonts loadFonts(PDDocument doc) throws Exception {
+        Fonts f = new Fonts();
+        f.sansBold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
+        f.sans     = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+        // Embedded serifs (fall back to Helvetica-Bold if a font file is missing).
+        f.serifBold = (serifBoldBytes != null)
+                ? PDType0Font.load(doc, new ByteArrayInputStream(serifBoldBytes), true)
+                : f.sansBold;
+        f.serif = (serifBytes != null)
+                ? PDType0Font.load(doc, new ByteArrayInputStream(serifBytes), true)
+                : f.sans;
+        return f;
+    }
+
+    // =========================================================
+    //  ACHIEVEMENT — "Certificate of Achievement"
     // =========================================================
 
     private byte[] generateGeneral(Certificate cert) throws Exception {
         try (PDDocument doc = new PDDocument()) {
             Page p = newPageFromTemplate(doc, TEMPLATE_GENERAL);
-            float W = p.w, H = p.h;
+            Fonts f = loadFonts(doc);
+            Map<String, FieldSpec> L = CertificateLayout.ACHIEVEMENT;
 
-            PDFont bold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
-            PDFont reg  = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
-            PDFont ital = new PDType1Font(Standard14Fonts.FontName.HELVETICA_OBLIQUE);
-
-            // ── Dynamic values (all from the real record; blanks stay blank) ──
-            String name     = buildFullName(cert).toUpperCase();
-            String course   = safe(cert.getCourse().getName()).toUpperCase();
-            String certNo   = cert.getCertificateNumber();
-            String grade    = safe(cert.getGrade());
-            String marks    = safe(cert.getMarks());
-            String studentId= safe(cert.getStudent().getStudentId());
-            String issue    = cert.getIssueDate() != null ? cert.getIssueDate().format(DATE_FMT) : "";
-            // Prefer the raw catalog duration label (covers DAYS/HOURS/fractional
-            // months); fall back to "<n> Months" for legacy courses with only months.
             String duration = safe(cert.getCourse().getDurationLabel());
-            if (duration.isEmpty() && cert.getCourse().getDurationMonths() != null) {
+            if (duration.isEmpty() && cert.getCourse().getDurationMonths() != null)
                 duration = cert.getCourse().getDurationMonths() + " Months";
-            }
-            String atcName  = safe(cert.getInstitute().getName()).toUpperCase();
-            String atcCity  = safe(cert.getInstitute().getCity()).toUpperCase();
+            String atc = safe(cert.getInstitute().getName()).toUpperCase()
+                    + (safe(cert.getInstitute().getCity()).isEmpty() ? ""
+                       : "  " + safe(cert.getInstitute().getCity()).toUpperCase());
 
             try (PDPageContentStream cs = new PDPageContentStream(doc, p.page)) {
-                // background artwork
-                cs.drawImage(p.bg, 0, 0, W, H);
+                cs.drawImage(p.bg, 0, 0, p.w, p.h);
 
-                // Student name — large, navy, centered, in the blank below "certify that"
-                drawCentered(cs, bold, 26f, NAVY, name, W, ty(H, 0.445f));
+                // Course title — wraps to 2 lines inside the banner if needed.
+                drawWrapped(cs, f, p, L.get("course"),
+                        safe(cert.getCourse().getName()).toUpperCase(), 2);
 
-                // Course name — inside the navy panel (gold text)
-                drawCentered(cs, bold, 17f, new Color(231, 200, 119), course, W, ty(H, 0.533f));
+                drawField(cs, f, p, L.get("name"),      buildFullName(cert).toUpperCase());
+                drawField(cs, f, p, L.get("duration"),  duration);
+                drawField(cs, f, p, L.get("grade"),     safe(cert.getGrade()));
+                drawField(cs, f, p, L.get("marks"),     safe(cert.getMarks()));
+                drawField(cs, f, p, L.get("studentId"), safe(cert.getStudent().getStudentId()));
+                drawField(cs, f, p, L.get("certNo"),    cert.getCertificateNumber());
+                drawField(cs, f, p, L.get("issue"),
+                        cert.getIssueDate() != null ? cert.getIssueDate().format(DATE_FMT) : "");
+                drawField(cs, f, p, L.get("atc"),       atc);
 
-                // Student photo — top-right box (fractional box, keep aspect ratio)
-                drawPhotoInBox(doc, cs, cert, W, H, 0.775f, 0.345f, 0.955f, 0.475f, certNo);
-
-                // Stats strip: Course Duration | Grade | Marks Obtained (values on the underlines)
-                drawCentered(cs, bold, 12f, NAVY, duration, frac(W, 0.145f), frac(W, 0.375f), ty(H, 0.700f));
-                drawCentered(cs, bold, 13f, NAVY, grade,    frac(W, 0.470f), frac(W, 0.635f), ty(H, 0.700f));
-                drawCentered(cs, bold, 13f, NAVY, marks,    frac(W, 0.775f), frac(W, 0.945f), ty(H, 0.700f));
-
-                // Left info block: Student ID / Certificate No. / Date of Issue (left-aligned on blanks)
-                drawText(cs, bold, 11f, NAVY, studentId, frac(W, 0.235f), ty(H, 0.748f));
-                drawText(cs, bold, 11f, NAVY, certNo,    frac(W, 0.235f), ty(H, 0.787f));
-                drawText(cs, bold, 11f, NAVY, issue,     frac(W, 0.235f), ty(H, 0.824f));
-
-                // Right block: ATC name + city on the long underline (auto-shrink to fit)
-                String atcLine = atcName + (atcCity.isEmpty() ? "" : "  " + atcCity);
-                drawFitted(cs, bold, 11.5f, NAVY, atcLine, frac(W, 0.635f), frac(W, 0.945f), ty(H, 0.772f));
-
-                // Verification QR — center-bottom dotted box (real /verify link)
-                drawQrInBox(doc, cs, certNo, W, H, 0.455f, 0.862f, 0.565f, 0.930f);
+                drawPhotoInBox(doc, cs, cert, p, CertificateLayout.ACH_PHOTO_BOX);
+                drawQrInBox(doc, cs, cert.getCertificateNumber(), p, CertificateLayout.ACH_QR_BOX);
             }
-
             return toBytes(doc);
         }
     }
@@ -187,25 +196,16 @@ public class PdfGeneratorService {
     private byte[] generateTyping(Certificate cert) throws Exception {
         try (PDDocument doc = new PDDocument()) {
             Page p = newPageFromTemplate(doc, TEMPLATE_TYPING);
-            float W = p.w, H = p.h;
+            Fonts f = loadFonts(doc);
+            Map<String, FieldSpec> L = CertificateLayout.TYPING;
 
-            PDFont bold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
-
-            String name       = buildFullName(cert).toUpperCase();
-            String studentId  = safe(cert.getStudent().getStudentId());
-            String centreCode = safe(cert.getInstitute().getInstituteCode());
-            String atcName    = safe(cert.getInstitute().getName()).toUpperCase();
-            String grade      = safe(cert.getGrade());
-            String city       = safe(cert.getInstitute().getCity());
-            String district   = safe(cert.getInstitute().getDistrict());
-            String venue      = city + (district.isEmpty() || district.equalsIgnoreCase(city) ? "" : "/" + district);
-            String month      = cert.getIssueDate() != null
+            String city     = safe(cert.getInstitute().getCity());
+            String district = safe(cert.getInstitute().getDistrict());
+            String venue    = city + (district.isEmpty() || district.equalsIgnoreCase(city) ? "" : "/" + district);
+            String month    = cert.getIssueDate() != null
                     ? cert.getIssueDate().getMonth().getDisplayName(TextStyle.FULL, Locale.ENGLISH) : "";
-            String subject    = safe(cert.getCourse().getName());
-            String certNo     = cert.getCertificateNumber();
-            String issue      = cert.getIssueDate() != null ? cert.getIssueDate().format(DATE_FMT) : "";
+            String subject  = safe(cert.getCourse().getName());
 
-            // Marks "obtained/max" → split; min/WPM only shown if present in source
             String obtained = "", max = "";
             if (!safe(cert.getMarks()).isBlank()) {
                 String[] parts = cert.getMarks().split("/");
@@ -214,180 +214,191 @@ public class PdfGeneratorService {
             }
 
             try (PDPageContentStream cs = new PDPageContentStream(doc, p.page)) {
-                cs.drawImage(p.bg, 0, 0, W, H);
+                cs.drawImage(p.bg, 0, 0, p.w, p.h);
 
-                // Header row: Student ID | Centre Code | ATC name (three boxes)
-                drawCentered(cs, bold, 11f, NAVY, studentId,  frac(W, 0.055f), frac(W, 0.300f), ty(H, 0.425f));
-                drawCentered(cs, bold, 11f, NAVY, centreCode, frac(W, 0.305f), frac(W, 0.520f), ty(H, 0.425f));
-                drawCentered(cs, bold, 9.5f, NAVY, atcName,   frac(W, 0.535f), frac(W, 0.955f), ty(H, 0.425f));
+                drawField(cs, f, p, L.get("studentId"),  safe(cert.getStudent().getStudentId()));
+                drawField(cs, f, p, L.get("centreCode"), safe(cert.getInstitute().getInstituteCode()));
+                drawField(cs, f, p, L.get("atc"),        safe(cert.getInstitute().getName()).toUpperCase());
+                drawField(cs, f, p, L.get("name"),       buildFullName(cert).toUpperCase());
+                drawField(cs, f, p, L.get("venue"),      venue);
+                drawField(cs, f, p, L.get("month"),      month);
+                drawField(cs, f, p, L.get("grade"),      safe(cert.getGrade()));
+                drawField(cs, f, p, L.get("wpm"),        extractWpm(subject));
+                drawField(cs, f, p, L.get("maxMarks"),   max);
+                drawField(cs, f, p, L.get("obtained"),   obtained);
+                drawField(cs, f, p, L.get("certNo"),     cert.getCertificateNumber());
+                drawField(cs, f, p, L.get("issue"),
+                        cert.getIssueDate() != null ? cert.getIssueDate().format(DATE_FMT) : "");
 
-                // Student name — in the blank band BELOW "THIS IS TO CERTIFY THAT",
-                // centered across the left/main area (not the photo box on the right).
-                drawCentered(cs, bold, 17f, NAVY, name, frac(W, 0.030f), frac(W, 0.730f), ty(H, 0.520f));
-
-                // Student photo — right box
-                drawPhotoInBox(doc, cs, cert, W, H, 0.790f, 0.450f, 0.950f, 0.585f, certNo);
-
-                // held-at row: venue (top line) + month (bottom line) in the wide middle cell
-                drawText(cs, bold, 11f, NAVY, venue, frac(W, 0.400f), ty(H, 0.650f));
-                drawText(cs, bold, 11f, NAVY, month, frac(W, 0.400f), ty(H, 0.668f));
-                // Centre Grade value (right-hand "Centre Grade" cell)
-                drawCentered(cs, bold, 14f, NAVY, grade, frac(W, 0.880f), frac(W, 0.955f), ty(H, 0.660f));
-
-                // Results table data row. The subject label ("Computer Based Typing
-                // English") is ALREADY printed in the template, so we do NOT overlay it.
-                // We only fill the numeric cells that come from the record.
-                float rowY = ty(H, 0.735f);
-                drawCentered(cs, bold, 10f, NAVY, extractWpm(subject), frac(W, 0.300f), frac(W, 0.420f), rowY);
-                drawCentered(cs, bold, 11f, NAVY, max,      frac(W, 0.420f), frac(W, 0.640f), rowY);
-                // Minimum marks column intentionally blank unless a source field exists
-                drawCentered(cs, bold, 11f, NAVY, obtained, frac(W, 0.790f), frac(W, 0.955f), rowY);
-
-                // Certificate No. + Date of Issue (on the underlines, below the labels)
-                drawText(cs, bold, 11f, NAVY, certNo, frac(W, 0.485f), ty(H, 0.815f));
-                drawText(cs, bold, 11f, NAVY, issue,  frac(W, 0.485f), ty(H, 0.853f));
+                drawPhotoInBox(doc, cs, cert, p, CertificateLayout.TYP_PHOTO_BOX);
             }
-
             return toBytes(doc);
         }
     }
 
     // =========================================================
-    //  Page / template helpers
+    //  Core field renderer (align + auto-shrink, config-driven)
     // =========================================================
 
-    /** A page sized to the template image's aspect ratio, with the image loaded. */
-    private static final class Page {
-        PDPage page; PDImageXObject bg; float w; float h;
+    /** Draw a single configured field. No-op for blank values. */
+    private void drawField(PDPageContentStream cs, Fonts f, Page p, FieldSpec spec, String text)
+            throws Exception {
+        if (spec == null || text == null || text.isBlank()) return;
+        String s = sanitize(text, f.of(spec.font()));
+        if (s.isBlank()) return;
+
+        float x1 = p.w * spec.x1();
+        float x2 = p.w * spec.x2();
+        float maxW = x2 - x1;
+        float y  = p.h * (1f - spec.y());          // top-origin fraction → bottom-left pt
+
+        PDFont font = f.of(spec.font());
+        float size = fitSize(font, s, spec.size(), maxW - 2f);
+        float tw   = textWidth(font, s, size);
+
+        float x = (spec.align() == Align.CENTER) ? x1 + (maxW - tw) / 2f : x1;
+        if (x < x1) x = x1;
+
+        emit(cs, font, size, spec.color(), s, x, y);
     }
 
-    /**
-     * Create a new page whose size matches the template PNG's aspect ratio
-     * (fixed to A4 width, height derived from the image ratio so the artwork
-     * is never stretched), and load the PNG as a drawable image.
-     */
-    private Page newPageFromTemplate(PDDocument doc, String classpath) throws Exception {
-        byte[] bytes;
-        try (InputStream in = new ClassPathResource(classpath).getInputStream()) {
-            bytes = in.readAllBytes();
+    /** Draw text that may wrap to up to {@code maxLines} centered lines (banner titles). */
+    private void drawWrapped(PDPageContentStream cs, Fonts f, Page p, FieldSpec spec,
+                             String text, int maxLines) throws Exception {
+        if (spec == null || text == null || text.isBlank()) return;
+        PDFont font = f.of(spec.font());
+        String s = sanitize(text, font);
+        float x1 = p.w * spec.x1(), x2 = p.w * spec.x2();
+        float maxW = x2 - x1;
+        float baseY = p.h * (1f - spec.y());
+
+        // Try single line at full size first (auto-shrink down to ~80% before wrapping).
+        float size = spec.size();
+        if (textWidth(font, s, size) <= maxW) {
+            emitCentered(cs, font, size, spec.color(), s, x1, maxW, baseY);
+            return;
         }
-        BufferedImage img = ImageIO.read(new java.io.ByteArrayInputStream(bytes));
-        float ratio = (float) img.getHeight() / (float) img.getWidth();
-
-        float w = PDRectangle.A4.getWidth();   // 595.28 pts
-        float h = w * ratio;                    // keep the artwork's proportions
-
-        Page p = new Page();
-        p.page = new PDPage(new PDRectangle(w, h));
-        doc.addPage(p.page);
-        p.bg = PDImageXObject.createFromByteArray(doc, bytes, "bg");
-        p.w = w;
-        p.h = h;
-        return p;
+        // Wrap into <= maxLines by words, shrinking until it fits.
+        List<String> lines = wrap(font, s, maxW, size);
+        while (lines.size() > maxLines && size > 10f) {
+            size -= 1f;
+            lines = wrap(font, s, maxW, size);
+        }
+        // If still too many lines, hard-shrink the single longest arrangement.
+        if (lines.size() > maxLines) {
+            size = fitSize(font, s, spec.size(), maxW);
+            lines = List.of(s);
+        }
+        float lineH = size * 1.05f;
+        // Vertically center the block around the configured baseline.
+        float startY = baseY + (lines.size() - 1) * lineH / 2f;
+        for (int i = 0; i < lines.size(); i++) {
+            emitCentered(cs, font, size, spec.color(), lines.get(i), x1, maxW, startY - i * lineH);
+        }
     }
 
-    // =========================================================
-    //  Drawing primitives (fraction-based)
-    // =========================================================
-
-    /** Convert a top-origin fraction to a PDFBox bottom-origin Y coordinate. */
-    private static float ty(float pageHeight, float fracFromTop) {
-        return pageHeight * (1f - fracFromTop);
+    private List<String> wrap(PDFont font, String s, float maxW, float size) throws Exception {
+        List<String> lines = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        for (String word : s.split("\\s+")) {
+            String trial = cur.length() == 0 ? word : cur + " " + word;
+            if (textWidth(font, trial, size) <= maxW || cur.length() == 0) {
+                cur = new StringBuilder(trial);
+            } else {
+                lines.add(cur.toString());
+                cur = new StringBuilder(word);
+            }
+        }
+        if (cur.length() > 0) lines.add(cur.toString());
+        return lines;
     }
 
-    /** Absolute coordinate for a fraction of a dimension. */
-    private static float frac(float dim, float f) {
-        return dim * f;
-    }
+    // ── Low-level emit ────────────────────────────────────────
 
-    /** Left-aligned text at (x, y). No-op for blank values. */
-    private void drawText(PDPageContentStream cs, PDFont font, float size,
-                          Color color, String text, float x, float y) throws Exception {
-        if (text == null || text.isBlank()) return;
+    private void emit(PDPageContentStream cs, PDFont font, float size, Color color,
+                      String s, float x, float y) throws Exception {
         cs.beginText();
         cs.setFont(font, size);
         cs.setNonStrokingColor(color);
         cs.newLineAtOffset(x, y);
-        cs.showText(sanitize(text));
+        cs.showText(s);
         cs.endText();
     }
 
-    /** Left-aligned text at x, auto-shrunk so it never exceeds (xMax - x). */
-    private void drawFitted(PDPageContentStream cs, PDFont font, float size,
-                            Color color, String text, float x, float xMax, float y) throws Exception {
-        if (text == null || text.isBlank()) return;
-        String s = sanitize(text);
-        float size2 = fitSize(font, s, size, xMax - x);
-        drawText(cs, font, size2, color, s, x, y);
+    private void emitCentered(PDPageContentStream cs, PDFont font, float size, Color color,
+                              String s, float x1, float maxW, float y) throws Exception {
+        float tw = textWidth(font, s, size);
+        emit(cs, font, size, color, s, x1 + (maxW - tw) / 2f, y);
     }
 
-    /** Text centered across the full page width. */
-    private void drawCentered(PDPageContentStream cs, PDFont font, float size,
-                              Color color, String text, float pageWidth, float y) throws Exception {
-        if (text == null || text.isBlank()) return;
-        String s = sanitize(text);
-        float size2 = fitSize(font, s, size, pageWidth * 0.9f);
-        float tw = font.getStringWidth(s) / 1000f * size2;
-        drawText(cs, font, size2, color, s, (pageWidth - tw) / 2f, y);
+    private float textWidth(PDFont font, String s, float size) throws Exception {
+        return font.getStringWidth(s) / 1000f * size;
     }
 
-    /** Text centered within a horizontal band [x1, x2], auto-shrunk to fit. */
-    private void drawCentered(PDPageContentStream cs, PDFont font, float size,
-                              Color color, String text, float x1, float x2, float y) throws Exception {
-        if (text == null || text.isBlank()) return;
-        String s = sanitize(text);
-        float boxW = x2 - x1;
-        float size2 = fitSize(font, s, size, boxW - 4f);
-        float tw = font.getStringWidth(s) / 1000f * size2;
-        float x = x1 + (boxW - tw) / 2f;
-        if (x < x1) x = x1 + 2f;
-        drawText(cs, font, size2, color, s, x, y);
-    }
-
-    /** Shrink the font size until the text fits the available width (min 6pt). */
     private float fitSize(PDFont font, String text, float size, float maxWidth) throws Exception {
         float s = size;
-        while (s > 6f && font.getStringWidth(text) / 1000f * s > maxWidth) {
-            s -= 0.5f;
-        }
+        while (s > 6f && textWidth(font, text, s) > maxWidth) s -= 0.5f;
         return s;
     }
 
-    /** Draw the student photo inside a fractional box, preserving aspect ratio. */
+    // =========================================================
+    //  Page / image helpers
+    // =========================================================
+
+    private static final class Page {
+        PDPage page; PDImageXObject bg; float w; float h;
+    }
+
+    private Page newPageFromTemplate(PDDocument doc, String classpath) throws Exception {
+        byte[] bytes = readClasspath(classpath);
+        BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+        float ratio = (float) img.getHeight() / (float) img.getWidth();
+        float w = PDRectangle.A4.getWidth();   // 595.28 pts
+        float h = w * ratio;                    // preserve artwork proportions (no distortion)
+        Page p = new Page();
+        p.page = new PDPage(new PDRectangle(w, h));
+        doc.addPage(p.page);
+        p.bg = PDImageXObject.createFromByteArray(doc, bytes, "bg");
+        p.w = w; p.h = h;
+        return p;
+    }
+
+    /** Draw the student photo inside a fractional box, preserving aspect ratio (center-crop to fill). */
     private void drawPhotoInBox(PDDocument doc, PDPageContentStream cs, Certificate cert,
-                                float W, float H, float fx1, float fy1, float fx2, float fy2,
-                                String certNo) {
+                                Page p, float[] box) {
         byte[] photoData = cert.getStudent().getPhotoData();
         if (photoData == null || photoData.length == 0) return;   // blank box stays blank
         try {
             PDImageXObject photo = PDImageXObject.createFromByteArray(doc, photoData, "photo");
-            float boxX = frac(W, fx1);
-            float boxY = ty(H, fy2);                 // bottom of box
-            float boxW = frac(W, fx2 - fx1);
-            float boxH = H * (fy2 - fy1);
-            // Fit within the box, preserving aspect ratio
+            float boxX = p.w * box[0];
+            float boxY = p.h * (1f - box[3]);
+            float boxW = p.w * (box[2] - box[0]);
+            float boxH = p.h * (box[3] - box[1]);
+            // Scale to COVER the frame, then center (center-crop) so no empty gaps.
             float ir = (float) photo.getHeight() / (float) photo.getWidth();
             float drawW = boxW, drawH = boxW * ir;
-            if (drawH > boxH) { drawH = boxH; drawW = boxH / ir; }
+            if (drawH < boxH) { drawH = boxH; drawW = boxH / ir; }
             float dx = boxX + (boxW - drawW) / 2f;
             float dy = boxY + (boxH - drawH) / 2f;
+            // Clip to the box so the cover-scaled photo doesn't bleed past the frame.
+            cs.saveGraphicsState();
+            cs.addRect(boxX, boxY, boxW, boxH);
+            cs.clip();
             cs.drawImage(photo, dx, dy, drawW, drawH);
+            cs.restoreGraphicsState();
         } catch (Exception e) {
-            log.warn("Could not embed student photo for {}: {}", certNo, e.getMessage());
+            log.warn("Could not embed student photo for {}: {}", cert.getCertificateNumber(), e.getMessage());
         }
     }
 
-    /** Draw the verification QR inside a fractional box (genuine /verify link). */
-    private void drawQrInBox(PDDocument doc, PDPageContentStream cs, String certNo,
-                             float W, float H, float fx1, float fy1, float fx2, float fy2) {
+    private void drawQrInBox(PDDocument doc, PDPageContentStream cs, String certNo, Page p, float[] box) {
         try {
-            String verifyUrl = frontendUrl.split(",")[0].trim().replaceAll("/+$", "")
-                    + "/verify/" + certNo;
+            String verifyUrl = frontendUrl.split(",")[0].trim().replaceAll("/+$", "") + "/verify/" + certNo;
             byte[] qr = generateQrCode(verifyUrl, 240);
             PDImageXObject qrImg = PDImageXObject.createFromByteArray(doc, qr, "qr");
-            float boxX = frac(W, fx1);
-            float boxY = ty(H, fy2);
-            float side = Math.min(frac(W, fx2 - fx1), H * (fy2 - fy1));
+            float boxX = p.w * box[0];
+            float boxY = p.h * (1f - box[3]);
+            float side = Math.min(p.w * (box[2] - box[0]), p.h * (box[3] - box[1]));
             cs.drawImage(qrImg, boxX, boxY, side, side);
         } catch (Exception e) {
             log.warn("QR code generation failed for {}: {}", certNo, e.getMessage());
@@ -398,10 +409,9 @@ public class PdfGeneratorService {
     //  Utility
     // =========================================================
 
-    /** Pull the WPM value out of a typing course name (e.g. "40 W.P.M." → "40"). */
     private String extractWpm(String courseName) {
         if (courseName == null) return "";
-        java.util.regex.Matcher m = java.util.regex.Pattern
+        var m = java.util.regex.Pattern
                 .compile("(\\d{2,3})\\s*W\\.?P\\.?M\\.?", java.util.regex.Pattern.CASE_INSENSITIVE)
                 .matcher(courseName);
         return m.find() ? m.group(1) : "";
@@ -414,13 +424,29 @@ public class PdfGeneratorService {
         return (fn + (mn.isBlank() ? "" : " " + mn) + " " + sn).trim();
     }
 
-    private static String safe(String s) {
-        return s == null ? "" : s.trim();
-    }
+    private static String safe(String s) { return s == null ? "" : s.trim(); }
 
-    /** Standard-14 fonts only support WinAnsi; drop unsupported chars defensively. */
-    private static String sanitize(String s) {
-        return s.replaceAll("[^\\x20-\\x7E]", "").trim();
+    /**
+     * Drop characters the chosen font cannot encode. Embedded TTFs cover full
+     * Latin; Standard-14 Helvetica is WinAnsi only. Checking per-font prevents
+     * "U+XXXX is not available in this font" crashes while keeping as much text
+     * as possible.
+     */
+    private static String sanitize(String s, PDFont font) {
+        if (s == null) return "";
+        StringBuilder out = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); ) {
+            int cp = s.codePointAt(i);
+            String ch = new String(Character.toChars(cp));
+            try {
+                font.getStringWidth(ch);   // throws if unencodable
+                out.append(ch);
+            } catch (Exception ignore) {
+                out.append(' ');
+            }
+            i += Character.charCount(cp);
+        }
+        return out.toString().replaceAll("\\s+", " ").trim();
     }
 
     private byte[] toBytes(PDDocument doc) throws Exception {
@@ -437,19 +463,23 @@ public class PdfGeneratorService {
         return out.toByteArray();
     }
 
+    private static byte[] readClasspath(String path) {
+        try (InputStream in = new ClassPathResource(path).getInputStream()) {
+            return in.readAllBytes();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     // =========================================================
     //  Validation (unchanged)
     // =========================================================
 
     private void validate(Certificate cert) {
-        if (cert == null)
-            throw new IllegalArgumentException("Certificate must not be null");
-        if (cert.getCourse() == null)
-            throw new IllegalArgumentException("Certificate has no course");
-        if (cert.getStudent() == null)
-            throw new IllegalArgumentException("Certificate has no student");
-        if (cert.getInstitute() == null)
-            throw new IllegalArgumentException("Certificate has no institute");
+        if (cert == null) throw new IllegalArgumentException("Certificate must not be null");
+        if (cert.getCourse() == null) throw new IllegalArgumentException("Certificate has no course");
+        if (cert.getStudent() == null) throw new IllegalArgumentException("Certificate has no student");
+        if (cert.getInstitute() == null) throw new IllegalArgumentException("Certificate has no institute");
         if (cert.getCertificateNumber() == null || cert.getCertificateNumber().isBlank())
             throw new IllegalArgumentException("Certificate number must be set before PDF generation");
     }
