@@ -115,7 +115,10 @@ public class PublicController {
             @RequestParam(defaultValue = "asc")  String direction,
             @RequestParam(defaultValue = "0")    int page,
             @RequestParam(defaultValue = "20")   int size) {
-        String s   = (search   != null && !search.isBlank())   ? search.trim()   : null;
+        // Fully-formed text LIKE pattern (or null) — avoids the lower(bytea)
+        // null-parameter typing issue (see CourseRepository.search).
+        String pattern = (search != null && !search.isBlank())
+                ? "%" + search.trim().toLowerCase() + "%" : null;
         String cat = (category != null && !category.isBlank()) ? category.trim() : null;
         String sortField = switch (sort) {
             case "duration" -> "durationDays";
@@ -132,7 +135,7 @@ public class PublicController {
                 Math.max(page, 0), safeSize,
                 org.springframework.data.domain.Sort.by(dir, sortField));
         // Public search is restricted to ACTIVE courses only.
-        var result = courseRepository.search(s, cat, Boolean.TRUE, pageable)
+        var result = courseRepository.search(pattern, cat, Boolean.TRUE, pageable)
                 .map(CourseResponse::from);
         return ResponseEntity.ok(ApiResponse.success(
                 "Courses retrieved", PagedResponse.from(result)));

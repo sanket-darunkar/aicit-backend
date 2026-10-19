@@ -50,7 +50,10 @@ public class AdminCoursesController {
             @RequestParam(defaultValue = "asc")  String direction,
             @RequestParam(defaultValue = "0")    int page,
             @RequestParam(defaultValue = "20")   int size) {
-        String s   = (search   != null && !search.isBlank())   ? search.trim()   : null;
+        // Build a fully-formed, text-typed LIKE pattern (or null) — see the
+        // CourseRepository.search javadoc for why the pattern is built here.
+        String pattern = (search != null && !search.isBlank())
+                ? "%" + search.trim().toLowerCase() + "%" : null;
         String cat = (category != null && !category.isBlank()) ? category.trim() : null;
         // Whitelist sortable fields to prevent arbitrary property injection
         String sortField = switch (sort) {
@@ -68,7 +71,7 @@ public class AdminCoursesController {
         var pageable = org.springframework.data.domain.PageRequest.of(
                 Math.max(page, 0), safeSize,
                 org.springframework.data.domain.Sort.by(dir, sortField));
-        var result = courseRepository.search(s, cat, active, pageable).map(CourseResponse::from);
+        var result = courseRepository.search(pattern, cat, active, pageable).map(CourseResponse::from);
         return ResponseEntity.ok(ApiResponse.success(
                 "Courses retrieved", PagedResponse.from(result)));
     }

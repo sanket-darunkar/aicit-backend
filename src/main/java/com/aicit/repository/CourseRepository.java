@@ -25,15 +25,26 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
      *   active   — true/false to restrict by status (null = any)
      * Sorting/pagination come from the Pageable.
      */
+    /**
+     * Server-side course search with optional filters.
+     *
+     * NOTE on :pattern — the caller passes either NULL (no text filter) or a
+     * ready-made lowercase LIKE pattern like "%tally%". We must NOT build the
+     * pattern with CONCAT('%', :search, '%') inside the query: when :search is
+     * null, Hibernate binds an untyped/bytea NULL and the concatenation makes
+     * the whole expression bytea, producing "function lower(bytea) does not
+     * exist". Passing a fully-formed text pattern (or null) keeps the bind
+     * firmly typed as text and avoids that entirely.
+     */
     @Query("""
         SELECT c FROM Course c
-        WHERE (:search   IS NULL
-               OR LOWER(c.name) LIKE LOWER(CONCAT('%', :search, '%'))
-               OR LOWER(c.code) LIKE LOWER(CONCAT('%', :search, '%')))
+        WHERE (:pattern IS NULL
+               OR LOWER(c.name) LIKE :pattern
+               OR LOWER(c.code) LIKE :pattern)
           AND (:category IS NULL OR c.category = :category)
           AND (:active   IS NULL OR c.isActive = :active)
         """)
-    Page<Course> search(@Param("search")   String search,
+    Page<Course> search(@Param("pattern")  String pattern,
                         @Param("category") String category,
                         @Param("active")   Boolean active,
                         Pageable pageable);
