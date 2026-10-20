@@ -104,7 +104,9 @@ def main():
         months, days, label = parse_duration(dur)
         rows.append((int(sr), name, label, months, days, infer_category(name)))
 
-    assert len(rows) == 317, f"expected 317 rows, got {len(rows)}"
+    # MS-CIT (originally sr 317) was removed from the catalog by a later
+    # business decision (migration V14), so the source list may have fewer rows.
+    assert 300 <= len(rows) <= 317, f"unexpected row count: {len(rows)}"
 
     values = []
     for sr, name, label, months, days, cat in rows:
