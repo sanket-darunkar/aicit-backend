@@ -7,9 +7,10 @@ name: Keep Render service awake
 
 on:
   schedule:
-    # Every 10 minutes. (GitHub cron is UTC and best-effort; it may run a few
-    # minutes late under load, which is fine for a 15-min sleep window.)
-    - cron: "*/10 * * * *"
+    # Every 5 minutes. GitHub throttles free scheduled workflows and can delay
+    # them significantly, so we schedule tighter than the 15-min sleep window
+    # to maximise the chance of landing a ping before the service sleeps.
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}   # allow manual runs from the Actions tab
 
 jobs:
