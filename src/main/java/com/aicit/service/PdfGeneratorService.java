@@ -168,6 +168,10 @@ public class PdfGeneratorService {
             try (PDPageContentStream cs = new PDPageContentStream(doc, p.page)) {
                 cs.drawImage(p.bg, 0, 0, p.w, p.h);
 
+                // Paint over the baked-in field-value underlines (cream rectangles)
+                // before drawing any values, so the values sit on a clean surface.
+                drawCoverBars(cs, p, CertificateLayout.ACH_UNDERLINE_COVERS, CertificateLayout.ACH_PAPER);
+
                 // Course title — wraps to 2 lines inside the banner if needed.
                 drawWrapped(cs, f, p, L.get("course"),
                         safe(cert.getCourse().getName()).toUpperCase(), 2);
@@ -259,7 +263,7 @@ public class PdfGeneratorService {
         float x = (spec.align() == Align.CENTER) ? x1 + (maxW - tw) / 2f : x1;
         if (x < x1) x = x1;
 
-        emit(cs, font, size, spec.color(), s, x, y);
+        emit(cs, font, size, spec.color(), s, x, y, spec.boldStroke());
     }
 
     /** Draw text that may wrap to up to {@code maxLines} centered lines (banner titles). */
@@ -317,12 +321,32 @@ public class PdfGeneratorService {
 
     private void emit(PDPageContentStream cs, PDFont font, float size, Color color,
                       String s, float x, float y) throws Exception {
+        emit(cs, font, size, color, s, x, y, 0f);
+    }
+
+    /**
+     * Draw text. When {@code stroke > 0}, glyphs are both filled and stroked in
+     * the same colour, producing a synthetic extra-bold (heavier than the font's
+     * own bold) — useful when no heavier font file is available.
+     */
+    private void emit(PDPageContentStream cs, PDFont font, float size, Color color,
+                      String s, float x, float y, float stroke) throws Exception {
         cs.beginText();
         cs.setFont(font, size);
         cs.setNonStrokingColor(color);
+        if (stroke > 0f) {
+            cs.setStrokingColor(color);
+            cs.setLineWidth(stroke);
+            cs.setRenderingMode(org.apache.pdfbox.pdmodel.graphics.state.RenderingMode.FILL_STROKE);
+        }
         cs.newLineAtOffset(x, y);
         cs.showText(s);
         cs.endText();
+        if (stroke > 0f) {
+            // Reset so subsequent text isn't accidentally bolded.
+            cs.setRenderingMode(org.apache.pdfbox.pdmodel.graphics.state.RenderingMode.FILL);
+            cs.setLineWidth(1f);
+        }
     }
 
     private void emitCentered(PDPageContentStream cs, PDFont font, float size, Color color,
@@ -389,6 +413,25 @@ public class PdfGeneratorService {
         } catch (Exception e) {
             log.warn("Could not embed student photo for {}: {}", cert.getCertificateNumber(), e.getMessage());
         }
+    }
+
+    /**
+     * Paint filled rectangles (in the paper colour) over regions of the artwork —
+     * used to hide the baked-in field-value underlines without editing the PNG.
+     * Each box is {x1,y1,x2,y2} as TOP-LEFT→BOTTOM-RIGHT page fractions.
+     */
+    private void drawCoverBars(PDPageContentStream cs, Page p, float[][] boxes, Color paper)
+            throws Exception {
+        if (boxes == null) return;
+        cs.setNonStrokingColor(paper);
+        for (float[] b : boxes) {
+            float x = p.w * b[0];
+            float y = p.h * (1f - b[3]);              // bottom edge (PDFBox bottom-left origin)
+            float w = p.w * (b[2] - b[0]);
+            float h = p.h * (b[3] - b[1]);
+            cs.addRect(x, y, w, h);
+        }
+        cs.fill();
     }
 
     private void drawQrInBox(PDDocument doc, PDPageContentStream cs, String certNo, Page p, float[] box) {
