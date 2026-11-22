@@ -137,29 +137,64 @@ public final class CertificateLayout {
         {0.569f, 0.766f, 0.926f, 0.773f},   // Authorised Training Centre (0.576–0.919 @ 0.769)
     };
 
-    // =========================================================
-    //  TYPING — NAVYA D. AGARE reference
-    // =========================================================
-    public static final Map<String, FieldSpec> TYPING = Map.ofEntries(
-        // Header cells
-        Map.entry("studentId", new FieldSpec(0.055f, 0.300f, 0.425f, FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
-        Map.entry("centreCode",new FieldSpec(0.305f, 0.520f, 0.425f, FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
-        Map.entry("atc",       new FieldSpec(0.535f, 0.955f, 0.425f, FontRole.SANS_BOLD, 10f, NAVY, Align.CENTER)),
-        // Student name — gold/dark-brown serif, centered in the left/main area
-        // (clear of the photo frame on the right and the divider above).
-        Map.entry("name",      new FieldSpec(0.030f, 0.730f, 0.505f, FontRole.SERIF_BOLD, 24f, GOLD, Align.CENTER)),
-        // held-at row
-        Map.entry("venue",     new FieldSpec(0.360f, 0.560f, 0.650f, FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT)),
-        Map.entry("month",     new FieldSpec(0.360f, 0.560f, 0.668f, FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT)),
-        Map.entry("grade",     new FieldSpec(0.880f, 0.955f, 0.660f, FontRole.SANS_BOLD, 14f, NAVY, Align.CENTER)),
-        // Results table numeric cells (subject label is pre-printed in artwork)
-        Map.entry("wpm",       new FieldSpec(0.300f, 0.420f, 0.735f, FontRole.SANS_BOLD, 10f, NAVY, Align.CENTER)),
-        Map.entry("maxMarks",  new FieldSpec(0.420f, 0.640f, 0.735f, FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
-        Map.entry("obtained",  new FieldSpec(0.790f, 0.955f, 0.735f, FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
-        // Certificate no + issue date on the underlines
-        Map.entry("certNo",    new FieldSpec(0.485f, 0.720f, 0.815f, FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT)),
-        Map.entry("issue",     new FieldSpec(0.485f, 0.720f, 0.853f, FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT))
-    );
+   // =========================================================
+// TYPING — NAVYA D. AGARE
+// =========================================================
+public static final Map<String, FieldSpec> TYPING = Map.ofEntries(
+    // Header cells
+    Map.entry("studentId",
+        new FieldSpec(0.055f, 0.300f, 0.425f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
 
-    public static final float[] TYP_PHOTO_BOX = {0.790f, 0.450f, 0.950f, 0.585f};
+    Map.entry("centreCode",
+        new FieldSpec(0.305f, 0.520f, 0.425f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
+
+    Map.entry("atc",
+        new FieldSpec(0.535f, 0.955f, 0.425f,
+            FontRole.SANS_BOLD, 10f, NAVY, Align.CENTER)),
+
+   Map.entry("name",
+    new FieldSpec(0.130f, 0.880f, 0.520f,
+        FontRole.SERIF_BOLD, 29f, NAVY, Align.CENTER, 0.6f)),
+
+    // Held-at row
+    Map.entry("venue",
+        new FieldSpec(0.450f, 0.650f, 0.660f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT)),
+
+    Map.entry("month",
+        new FieldSpec(0.265f, 0.450f, 0.660f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT)),
+
+    Map.entry("grade",
+        new FieldSpec(0.850f, 0.880f, 0.660f,
+            FontRole.SANS_BOLD, 14f, NAVY, Align.CENTER)),
+
+    // Results table
+    Map.entry("wpm",
+        new FieldSpec(0.300f, 0.420f, 0.745f,
+            FontRole.SANS_BOLD, 10f, NAVY, Align.CENTER)),
+
+    Map.entry("maxMarks",
+        new FieldSpec(0.420f, 0.640f, 0.745f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
+
+    Map.entry("obtained",
+        new FieldSpec(0.790f, 0.955f, 0.745f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.CENTER)),
+
+    // Certificate number and issue date
+    Map.entry("certNo",
+        new FieldSpec(0.495f, 0.755f, 0.810f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT)),
+
+    Map.entry("issue",
+        new FieldSpec(0.495f, 0.720f, 0.853f,
+            FontRole.SANS_BOLD, 11f, NAVY, Align.LEFT))
+);
+
+public static final float[] TYP_PHOTO_BOX = {
+    0.790f, 0.450f, 0.950f, 0.585f
+};
 }

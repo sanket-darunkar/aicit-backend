@@ -75,12 +75,25 @@ public class PdfGeneratorService {
     private byte[] serifBoldBytes;
     private byte[] serifBytes;
 
+    // Cached template image bytes (loaded once at startup; prevents repeated classpath I/O).
+    private byte[] templateGeneralBytes;
+    private byte[] templateTypingBytes;
+
     @PostConstruct
     void loadFontBytes() {
         serifBoldBytes = readClasspath(FONT_SERIF_BOLD);
         serifBytes     = readClasspath(FONT_SERIF);
         if (serifBoldBytes == null)
             log.warn("Serif-bold font {} not found — will fall back to Helvetica-Bold.", FONT_SERIF_BOLD);
+
+        // Pre-load template images so each PDF generation is pure CPU, not I/O.
+        templateGeneralBytes = readClasspath(TEMPLATE_GENERAL);
+        templateTypingBytes  = readClasspath(TEMPLATE_TYPING);
+        if (templateGeneralBytes == null)
+            log.warn("General certificate template {} not found on classpath.", TEMPLATE_GENERAL);
+        if (templateTypingBytes == null)
+            log.warn("Typing certificate template {} not found on classpath.", TEMPLATE_TYPING);
+        log.info("PdfGeneratorService initialised — templates and fonts loaded into memory.");
     }
 
     // =========================================================
@@ -101,15 +114,19 @@ public class PdfGeneratorService {
     public byte[] generateCertificatePdf(Certificate cert) {
         validate(cert);
         CertificateType type = detectType(cert.getCourse().getName());
-        String templatePath  = (type == CertificateType.TYPING) ? TEMPLATE_TYPING : TEMPLATE_GENERAL;
 
-        if (!new ClassPathResource(templatePath).exists()) {
-            throw new RuntimeException("Certificate template not found on classpath: " + templatePath);
+        // Use cached template bytes — fail fast if they weren't loaded at startup.
+        byte[] templateBytes = (type == CertificateType.TYPING) ? templateTypingBytes : templateGeneralBytes;
+        if (templateBytes == null) {
+            String path = (type == CertificateType.TYPING) ? TEMPLATE_TYPING : TEMPLATE_GENERAL;
+            throw new RuntimeException("Certificate template not found on classpath: " + path);
         }
-        log.info("Generating {} certificate for {} — template={}",
-                type, cert.getCertificateNumber(), templatePath);
+        log.info("Generating {} certificate for {} (template cached={}b)",
+                type, cert.getCertificateNumber(), templateBytes.length);
         try {
-            return (type == CertificateType.TYPING) ? generateTyping(cert) : generateGeneral(cert);
+            return (type == CertificateType.TYPING)
+                    ? generateTyping(cert, templateBytes)
+                    : generateGeneral(cert, templateBytes);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -152,9 +169,9 @@ public class PdfGeneratorService {
     //  ACHIEVEMENT — "Certificate of Achievement"
     // =========================================================
 
-    private byte[] generateGeneral(Certificate cert) throws Exception {
+    private byte[] generateGeneral(Certificate cert, byte[] templateBytes) throws Exception {
         try (PDDocument doc = new PDDocument()) {
-            Page p = newPageFromTemplate(doc, TEMPLATE_GENERAL);
+            Page p = newPageFromTemplate(doc, templateBytes);
             Fonts f = loadFonts(doc);
             Map<String, FieldSpec> L = CertificateLayout.ACHIEVEMENT;
 
@@ -197,9 +214,9 @@ public class PdfGeneratorService {
     //  TYPING — "Computer Based Typing Examination"
     // =========================================================
 
-    private byte[] generateTyping(Certificate cert) throws Exception {
+    private byte[] generateTyping(Certificate cert, byte[] templateBytes) throws Exception {
         try (PDDocument doc = new PDDocument()) {
-            Page p = newPageFromTemplate(doc, TEMPLATE_TYPING);
+            Page p = newPageFromTemplate(doc, templateBytes);
             Fonts f = loadFonts(doc);
             Map<String, FieldSpec> L = CertificateLayout.TYPING;
 
@@ -373,16 +390,15 @@ public class PdfGeneratorService {
         PDPage page; PDImageXObject bg; float w; float h;
     }
 
-    private Page newPageFromTemplate(PDDocument doc, String classpath) throws Exception {
-        byte[] bytes = readClasspath(classpath);
-        BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+    private Page newPageFromTemplate(PDDocument doc, byte[] templateBytes) throws Exception {
+        BufferedImage img = ImageIO.read(new ByteArrayInputStream(templateBytes));
         float ratio = (float) img.getHeight() / (float) img.getWidth();
         float w = PDRectangle.A4.getWidth();   // 595.28 pts
         float h = w * ratio;                    // preserve artwork proportions (no distortion)
         Page p = new Page();
         p.page = new PDPage(new PDRectangle(w, h));
         doc.addPage(p.page);
-        p.bg = PDImageXObject.createFromByteArray(doc, bytes, "bg");
+        p.bg = PDImageXObject.createFromByteArray(doc, templateBytes, "bg");
         p.w = w; p.h = h;
         return p;
     }
@@ -441,8 +457,13 @@ public class PdfGeneratorService {
             PDImageXObject qrImg = PDImageXObject.createFromByteArray(doc, qr, "qr");
             float boxX = p.w * box[0];
             float boxY = p.h * (1f - box[3]);
-            float side = Math.min(p.w * (box[2] - box[0]), p.h * (box[3] - box[1]));
-            cs.drawImage(qrImg, boxX, boxY, side, side);
+            float boxW = p.w * (box[2] - box[0]);
+            float boxH = p.h * (box[3] - box[1]);
+            float side = Math.min(boxW, boxH);
+            // Center the QR square within the box so it sits in the middle of the dashed frame.
+            float dx = boxX + (boxW - side) / 2f;
+            float dy = boxY + (boxH - side) / 2f;
+            cs.drawImage(qrImg, dx, dy, side, side);
         } catch (Exception e) {
             log.warn("QR code generation failed for {}: {}", certNo, e.getMessage());
         }
@@ -496,6 +517,27 @@ public class PdfGeneratorService {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         doc.save(baos);
         return baos.toByteArray();
+    }
+
+    /**
+     * Renders page 0 of a PDF to a PNG image at the given DPI and returns the
+     * PNG bytes. Used to serve a certificate preview image to the browser without
+     * requiring a PDF viewer.
+     *
+     * @param pdfBytes the full PDF bytes (must be a valid single-page PDF)
+     * @param dpi      render resolution — 150 is fast and sharp enough for preview
+     * @return PNG bytes of the rendered page
+     */
+    public byte[] renderPdfFirstPageAsPng(byte[] pdfBytes, int dpi) throws Exception {
+        try (org.apache.pdfbox.pdmodel.PDDocument doc =
+                org.apache.pdfbox.Loader.loadPDF(pdfBytes)) {
+            org.apache.pdfbox.rendering.PDFRenderer renderer =
+                    new org.apache.pdfbox.rendering.PDFRenderer(doc);
+            BufferedImage img = renderer.renderImageWithDPI(0, dpi);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ImageIO.write(img, "PNG", out);
+            return out.toByteArray();
+        }
     }
 
     private byte[] generateQrCode(String content, int size) throws Exception {

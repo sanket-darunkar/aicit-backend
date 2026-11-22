@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -37,6 +38,7 @@ public class CertificateServiceImpl implements CertificateService {
     private final InstituteUserRepository        instituteUserRepository;
     private final PdfGeneratorService            pdfGenerator;
     private final CertificateNumberGenerator     certNumGenerator;
+    private final SequenceRepository             sequenceRepository;
     private final EmailService                   emailService;
     private final AuditLogService                auditLogService;
 
@@ -81,8 +83,11 @@ public class CertificateServiceImpl implements CertificateService {
     public PagedResponse<CertificateResponse> listByInstitute(Long instituteId, String status,
                                                                 int page, int size) {
         Certificate.Status statusEnum = parseStatus(status);
-        Page<Certificate> result = certificateRepository.findByInstituteIdFiltered(
-                instituteId, statusEnum, PageRequest.of(page, size));
+        Pageable pageable = PageRequest.of(page, size);
+        // Pass null to JPQL enum params causes a PSQLException — use separate queries.
+        Page<Certificate> result = (statusEnum == null)
+                ? certificateRepository.findByInstituteId(instituteId, pageable)
+                : certificateRepository.findByInstituteIdFiltered(instituteId, statusEnum, pageable);
         return PagedResponse.from(result.map(CertificateResponse::from));
     }
 
@@ -99,6 +104,48 @@ public class CertificateServiceImpl implements CertificateService {
             throw new IllegalStateException("Certificate PDF is only available for ISSUED certificates.");
         }
         return ensurePdf(cert);
+    }
+
+    /**
+     * Renders the certificate as a PNG image for in-browser preview.
+     * Uses the exact same PDF generation path as download, then rasterises page 0
+     * at 150 DPI — so preview and download are always pixel-identical in content.
+     * Returns null for certificates that are not yet ISSUED (caller returns 204).
+     */
+    @Override
+    @Transactional
+    public byte[] previewImage(Long instituteId, Long certId) {
+        Certificate cert = findByInstituteOrThrow(instituteId, certId);
+        if (cert.getStatus() != Certificate.Status.ISSUED) {
+            return null;
+        }
+        byte[] pdf = ensurePdf(cert);
+        try {
+            return pdfGenerator.renderPdfFirstPageAsPng(pdf, 150);
+        } catch (Exception e) {
+            log.error("Preview image render failed for certificate {}: {}", certId, e.getMessage(), e);
+            throw new RuntimeException("Could not render preview for certificate " + certId + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Admin-scoped preview: same PNG rendering, no institute scope check.
+     * Returns null for non-ISSUED certificates (caller returns 204).
+     */
+    @Override
+    @Transactional
+    public byte[] adminPreviewImage(Long certId) {
+        Certificate cert = findOrThrow(certId);
+        if (cert.getStatus() != Certificate.Status.ISSUED) {
+            return null;
+        }
+        byte[] pdf = ensurePdf(cert);
+        try {
+            return pdfGenerator.renderPdfFirstPageAsPng(pdf, 150);
+        } catch (Exception e) {
+            log.error("Admin preview image render failed for certificate {}: {}", certId, e.getMessage(), e);
+            throw new RuntimeException("Could not render preview for certificate " + certId + ": " + e.getMessage(), e);
+        }
     }
 
     // ── Admin ─────────────────────────────────────────────────
@@ -169,16 +216,18 @@ public class CertificateServiceImpl implements CertificateService {
         if (StringUtils.hasText(req.getMarks())) cert.setMarks(req.getMarks());
         if (StringUtils.hasText(req.getGrade())) cert.setGrade(req.getGrade());
 
-        // Generate PDF
+        // Generate PDF — only mark ISSUED if PDF succeeds
         try {
             byte[] pdf = pdfGenerator.generateCertificatePdf(cert);
             cert.setPdfData(pdf);
             cert.setPdfGeneratedAt(LocalDateTime.now());
             cert.setStatus(Certificate.Status.ISSUED);
-            log.info("Certificate PDF generated: {}", certNumber);
+            log.info("Certificate PDF generated and issued: {}", certNumber);
         } catch (Exception e) {
-            log.error("PDF generation failed for {}: {}", certNumber, e.getMessage());
-            cert.setStatus(Certificate.Status.ISSUED); // still issue even without PDF
+            // Leave cert in APPROVED state — not ISSUED — so it can be retried
+            // via the regenerate endpoint without data loss.
+            log.error("PDF generation failed for {} — cert left as APPROVED for retry: {}",
+                    certNumber, e.getMessage(), e);
         }
 
         Certificate saved = certificateRepository.save(cert);
@@ -320,15 +369,9 @@ public class CertificateServiceImpl implements CertificateService {
         catch (IllegalArgumentException e) { return null; }
     }
 
+    /** Atomic, race-safe certificate number via DB sequence — mirrors BatchCertificateServiceImpl. */
     private String generateUniqueCertNumber() {
-        int year = LocalDate.now().getYear();
-        String prefix = "AICIT-" + year + "-";
-        long maxSeq = certificateRepository.findCertNumbersByPrefix(prefix).stream()
-                .mapToLong(n -> {
-                    try { return Long.parseLong(n.substring(prefix.length())); }
-                    catch (Exception e) { return 0L; }
-                })
-                .max().orElse(0L);
-        return certNumGenerator.generate(maxSeq + 1);
+        long seq = sequenceRepository.nextVal("cert_number_seq");
+        return certNumGenerator.generate(seq);
     }
 }

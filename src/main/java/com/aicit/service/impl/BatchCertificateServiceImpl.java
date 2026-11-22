@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -301,8 +302,11 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
     public PagedResponse<BatchResponse> listByInstitute(Long instituteId, String paymentStatus,
                                                         int page, int size) {
         PaymentStatus ps = parsePaymentStatus(paymentStatus);
-        Page<CertificateBatch> result = batchRepository.findByInstituteFiltered(
-                instituteId, ps, PageRequest.of(page, Math.min(size, 100)));
+        Pageable pageable = PageRequest.of(page, Math.min(size, 100));
+        // Pass null to JPQL enum params causes a PSQLException — use separate queries.
+        Page<CertificateBatch> result = (ps == null)
+                ? batchRepository.findByInstituteId(instituteId, pageable)
+                : batchRepository.findByInstituteFiltered(instituteId, ps, pageable);
         return PagedResponse.from(result.map(BatchResponse::from));
     }
 
@@ -321,8 +325,11 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
     @Transactional(readOnly = true)
     public PagedResponse<BatchResponse> listAll(String paymentStatus, int page, int size) {
         PaymentStatus ps = parsePaymentStatus(paymentStatus);
-        Page<CertificateBatch> result = batchRepository.findAllFiltered(
-                ps, PageRequest.of(page, Math.min(size, 100)));
+        Pageable pageable = PageRequest.of(page, Math.min(size, 100));
+        // Pass null to JPQL enum params causes a PSQLException — use separate queries.
+        Page<CertificateBatch> result = (ps == null)
+                ? batchRepository.findAllBatches(pageable)
+                : batchRepository.findAllFiltered(ps, pageable);
         return PagedResponse.from(result.map(BatchResponse::from));
     }
 
@@ -437,13 +444,16 @@ public class BatchCertificateServiceImpl implements BatchCertificateService {
                 byte[] pdf = pdfGenerator.generateCertificatePdf(cert);
                 cert.setPdfData(pdf);
                 cert.setPdfGeneratedAt(LocalDateTime.now());
+                cert.setStatus(Certificate.Status.ISSUED);
+                certificateRepository.save(cert);
+                issued++;
             } catch (Exception e) {
-                log.error("PDF generation failed for {} in batch {}: {}",
-                        certNumber, batch.getBatchCode(), e.getMessage());
+                // PDF failed — leave cert in APPROVED state (not ISSUED) so it can be
+                // retried, and so the ZIP download doesn't silently omit it.
+                log.error("PDF generation failed for cert {} in batch {} — cert left as APPROVED: {}",
+                        certNumber, batch.getBatchCode(), e.getMessage(), e);
+                certificateRepository.save(cert); // persist certNumber / reviewedBy / issueDate
             }
-            cert.setStatus(Certificate.Status.ISSUED);
-            certificateRepository.save(cert);
-            issued++;
         }
 
         batch.setBatchStatus(issued == certs.size()

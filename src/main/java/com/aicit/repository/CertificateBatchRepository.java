@@ -23,10 +23,24 @@ public interface CertificateBatchRepository extends JpaRepository<CertificateBat
     @Query("SELECT b.batchCode FROM CertificateBatch b WHERE b.batchCode LIKE :prefix%")
     List<String> findBatchCodesByPrefix(@Param("prefix") String prefix);
 
+    // ── Institute-scoped list ─────────────────────────────────
+
+    /** All batches for an institute, newest first (no payment filter). */
+    @Query("SELECT b FROM CertificateBatch b WHERE b.institute.id = :instituteId ORDER BY b.createdAt DESC")
+    Page<CertificateBatch> findByInstituteId(
+            @Param("instituteId") Long instituteId,
+            Pageable pageable);
+
+    /**
+     * Institute batches filtered by a specific payment status.
+     * NOTE: never pass null here — Hibernate cannot resolve the type of a null
+     * enum parameter in JPQL, causing a PSQLException.  Call findByInstituteId
+     * instead when no filter is needed.
+     */
     @Query("""
         SELECT b FROM CertificateBatch b
         WHERE b.institute.id = :instituteId
-          AND (:paymentStatus IS NULL OR b.paymentStatus = :paymentStatus)
+          AND b.paymentStatus = :paymentStatus
         ORDER BY b.createdAt DESC
         """)
     Page<CertificateBatch> findByInstituteFiltered(
@@ -34,9 +48,19 @@ public interface CertificateBatchRepository extends JpaRepository<CertificateBat
             @Param("paymentStatus") com.aicit.entity.PaymentStatus paymentStatus,
             Pageable pageable);
 
+    // ── Admin (unscoped) list ─────────────────────────────────
+
+    /** All batches, newest first (no payment filter). */
+    @Query("SELECT b FROM CertificateBatch b ORDER BY b.createdAt DESC")
+    Page<CertificateBatch> findAllBatches(Pageable pageable);
+
+    /**
+     * All batches filtered by a specific payment status.
+     * NOTE: never pass null here — see findByInstituteFiltered note above.
+     */
     @Query("""
         SELECT b FROM CertificateBatch b
-        WHERE (:paymentStatus IS NULL OR b.paymentStatus = :paymentStatus)
+        WHERE b.paymentStatus = :paymentStatus
         ORDER BY b.createdAt DESC
         """)
     Page<CertificateBatch> findAllFiltered(

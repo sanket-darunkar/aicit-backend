@@ -79,6 +79,24 @@ public class InstituteCertificateController {
                 .body(pdf);
     }
 
+    @GetMapping("/{id}/preview")
+    @PreAuthorize("hasAnyRole('INSTITUTE_ADMIN','INSTITUTE_STAFF')")
+    @Operation(summary = "Preview certificate as image",
+               description = "Renders the same PDF used for download as a PNG image for in-browser preview. " +
+                             "Only available for ISSUED certificates. Returns 204 if not yet issued.")
+    public ResponseEntity<byte[]> preview(
+            @PathVariable Long id, HttpServletRequest request) {
+        Long instituteId = getInstituteId(request);
+        byte[] png = certService.previewImage(instituteId, id);
+        if (png == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                .body(png);
+    }
+
     private Long getInstituteId(HttpServletRequest request) {
         Object attr = request.getAttribute("authenticatedInstituteId");
         if (attr == null) throw new IllegalStateException("Institute context not found in token.");

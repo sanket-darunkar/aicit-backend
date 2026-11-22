@@ -44,10 +44,22 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
     int updatePaymentStatusByBatchId(@Param("batchId") Long batchId,
                                      @Param("status") com.aicit.entity.PaymentStatus status);
 
+    /** All certificates for an institute, newest first (no status filter). */
+    @Query("SELECT c FROM Certificate c WHERE c.institute.id = :instituteId ORDER BY c.createdAt DESC")
+    Page<Certificate> findByInstituteId(
+            @Param("instituteId") Long instituteId,
+            Pageable pageable);
+
+    /**
+     * Institute certificates filtered by a specific status.
+     * NOTE: never pass null here — Hibernate cannot resolve the type of a null
+     * enum parameter in JPQL, causing a PSQLException.  Call findByInstituteId
+     * instead when no filter is needed.
+     */
     @Query("""
         SELECT c FROM Certificate c
         WHERE c.institute.id = :instituteId
-          AND (:status IS NULL OR c.status = :status)
+          AND c.status = :status
         ORDER BY c.createdAt DESC
         """)
     Page<Certificate> findByInstituteIdFiltered(
@@ -60,7 +72,7 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
                c.enrollment_id, c.course_id, c.batch_id, c.amount, c.payment_status,
                c.marks, c.grade, c.issue_date,
                c.status, c.rejection_reason, c.reviewed_by, c.reviewed_at,
-               c.pdf_data, c.pdf_generated_at, c.revoked_at, c.revoke_reason,
+               NULL::bytea AS pdf_data, c.pdf_generated_at, c.revoked_at, c.revoke_reason,
                c.created_at, c.updated_at
         FROM certificates c
         JOIN students s ON s.id = c.student_id

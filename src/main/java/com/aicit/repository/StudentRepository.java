@@ -23,11 +23,29 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     long countByInstituteId(Long instituteId);
 
+    /**
+     * Highest numeric suffix among student IDs that match the given prefix pattern.
+     * Used for safe sequential ID generation — count()-based generation breaks after
+     * deletions and under concurrent inserts. Returns 0 when no matching IDs exist.
+     *
+     * Example: prefix pattern = "AICIT-INST-0001-2026-%"
+     */
+    @Query(value = """
+        SELECT COALESCE(MAX(CAST(SUBSTRING(student_id FROM '[0-9]+$') AS INTEGER)), 0)
+        FROM students
+        WHERE institute_id = :instituteId
+          AND student_id LIKE :prefixPattern
+        """, nativeQuery = true)
+    long findMaxStudentIdSuffix(
+            @Param("instituteId")    Long   instituteId,
+            @Param("prefixPattern") String prefixPattern);
+
     /** Institute-scoped search */
     @Query(value = """
         SELECT s.id, s.aadhaar_number, s.address_line1, s.city, s.created_at,
                s.created_by, s.date_of_birth, s.district, s.first_name, s.gender,
-               s.institute_id, s.middle_name, s.notes, s.own_mobile, s.photo_data,
+               s.institute_id, s.middle_name, s.notes, s.own_mobile,
+               NULL::bytea AS photo_data,
                s.photo_mime_type, s.pin_code, s.qualification, s.state, s.status,
                s.student_id, s.surname, s.updated_at
         FROM students s
@@ -61,7 +79,8 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @Query(value = """
         SELECT s.id, s.aadhaar_number, s.address_line1, s.city, s.created_at,
                s.created_by, s.date_of_birth, s.district, s.first_name, s.gender,
-               s.institute_id, s.middle_name, s.notes, s.own_mobile, s.photo_data,
+               s.institute_id, s.middle_name, s.notes, s.own_mobile,
+               NULL::bytea AS photo_data,
                s.photo_mime_type, s.pin_code, s.qualification, s.state, s.status,
                s.student_id, s.surname, s.updated_at
         FROM students s

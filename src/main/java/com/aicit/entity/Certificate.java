@@ -31,11 +31,11 @@ public class Certificate {
     private String certificateNumber;
 
     /** DATA FENCE — every query must filter by this */
-    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "institute_id", nullable = false)
     private Institute institute;
 
-    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "student_id", nullable = false)
     private Student student;
 
@@ -43,7 +43,7 @@ public class Certificate {
     @JoinColumn(name = "enrollment_id")
     private Enrollment enrollment;
 
-    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "course_id", nullable = false)
     private Course course;
 
@@ -87,6 +87,7 @@ public class Certificate {
     private LocalDateTime reviewedAt;
 
     @Column(name = "pdf_data", columnDefinition = "bytea")
+    @Basic(fetch = FetchType.LAZY)
     private byte[] pdfData;
 
     @Column(name = "pdf_generated_at")

@@ -153,7 +153,8 @@ public class AdminInstituteController {
     // ── Helpers ───────────────────────────────────────────────
     private Long getAdminId(Authentication auth) {
         return adminUserRepository.findByEmail(auth.getName())
-                .map(a -> a.getId())
-                .orElse(0L);
+                .orElseThrow(() -> new com.aicit.exception.ResourceNotFoundException(
+                        "Authenticated admin user not found: " + auth.getName()))
+                .getId();
     }
 }

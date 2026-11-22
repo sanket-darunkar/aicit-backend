@@ -116,6 +116,19 @@ public class AdminCertificateController {
                 .body(pdf);
     }
 
+    @GetMapping("/certificates/{id}/preview")
+    @Operation(summary = "Preview certificate as image (admin)",
+               description = "Renders the same PDF used for download as a PNG image for in-browser preview. " +
+                             "Only available for ISSUED certificates. Returns 204 if not yet issued.")
+    public ResponseEntity<byte[]> preview(@PathVariable Long id) {
+        byte[] png = certService.adminPreviewImage(id);
+        if (png == null) return ResponseEntity.noContent().build();
+        return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                .body(png);
+    }
+
     // ── Mail Diagnostics ──────────────────────────────────────
 
     @PostMapping("/mail/test")
@@ -177,7 +190,9 @@ public class AdminCertificateController {
 
     private Long getAdminId(Authentication auth) {
         return adminUserRepository.findByEmail(auth.getName())
-                .map(AdminUser::getId).orElse(0L);
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Authenticated admin user not found: " + auth.getName()))
+                .getId();
     }
 
     private static final org.slf4j.Logger log =

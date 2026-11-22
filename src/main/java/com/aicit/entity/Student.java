@@ -30,7 +30,7 @@ public class Student {
     private Long id;
 
     /** DATA FENCE — every query must filter by this */
-    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "institute_id", nullable = false)
     private Institute institute;
 
@@ -87,6 +87,7 @@ public class Student {
     private Status status = Status.ACTIVE;
 
     @Column(name = "photo_data", columnDefinition = "bytea")
+    @Basic(fetch = FetchType.LAZY)
     private byte[] photoData;
 
     @Column(name = "photo_mime_type", length = 20)

@@ -39,10 +39,22 @@ public class StudentServiceImpl implements StudentService {
     private final InstituteUserRepository instituteUserRepository;
 
     // ── Student ID generation ────────────────────────────────
+    // Derives the next code from the highest EXISTING suffix, not from count().
+    // count()-based generation breaks after deletions (reuses old numbers) and
+    // under concurrent inserts (two threads read the same count, both produce
+    // the same ID). The same pattern is used for institute codes.
     private String generateStudentId(Long instituteId, String instituteCode) {
-        long count = studentRepository.countByInstituteId(instituteId) + 1;
-        String year = String.valueOf(LocalDateTime.now().getYear());
-        return instituteCode + "-" + year + "-" + String.format("%03d", count);
+        String year   = String.valueOf(LocalDateTime.now().getYear());
+        String prefix = instituteCode + "-" + year + "-";
+        long maxSeq = studentRepository.findMaxStudentIdSuffix(instituteId, prefix + "%");
+        long next   = maxSeq + 1;
+        String id   = prefix + String.format("%03d", next);
+        // Defensive: advance past any already-taken codes (guards against gaps/races).
+        while (studentRepository.existsByInstituteIdAndStudentId(instituteId, id)) {
+            next++;
+            id = prefix + String.format("%03d", next);
+        }
+        return id;
     }
 
     // ── Institute-scoped operations ──────────────────────────

@@ -34,6 +34,10 @@ class PdfGeneratorServiceTest {
         var field = PdfGeneratorService.class.getDeclaredField("frontendUrl");
         field.setAccessible(true);
         field.set(service, "http://localhost:5174");
+        // Run @PostConstruct to load fonts and template bytes (not called outside Spring)
+        var init = PdfGeneratorService.class.getDeclaredMethod("loadFontBytes");
+        init.setAccessible(true);
+        init.invoke(service);
     }
 
     // =========================================================

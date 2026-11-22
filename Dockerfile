@@ -42,9 +42,16 @@ USER appuser
 EXPOSE 8081
 
 # JVM tuning for container environments:
-#   -XX:+UseContainerSupport   – respects cgroup memory limits
-#   -XX:MaxRAMPercentage=75    – leaves headroom for the OS
+#   -XX:+UseContainerSupport      – respects cgroup memory limits
+#   -XX:MaxRAMPercentage=75.0     – leaves headroom for the OS and PDFBox
+#   -XX:+UseSerialGC              – Serial GC has lower overhead than G1 on
+#                                   small heaps (< 1 GB), typical of Render free tier
+#   -XX:MaxMetaspaceSize=128m     – cap metaspace so it can't silently grow
+#   -Djava.awt.headless=true      – required for PDFBox ImageIO on headless servers
 ENTRYPOINT ["java", \
   "-XX:+UseContainerSupport", \
   "-XX:MaxRAMPercentage=75.0", \
+  "-XX:+UseSerialGC", \
+  "-XX:MaxMetaspaceSize=128m", \
+  "-Djava.awt.headless=true", \
   "-jar", "app.jar"]

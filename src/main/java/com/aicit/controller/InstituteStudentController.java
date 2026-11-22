@@ -120,7 +120,8 @@ public class InstituteStudentController {
 
     private Long getUserId(String email) {
         return instituteUserRepository.findByEmail(email)
-                .map(u -> u.getId())
-                .orElse(null);
+                .orElseThrow(() -> new IllegalStateException(
+                        "Authenticated institute user not found: " + email))
+                .getId();
     }
 }

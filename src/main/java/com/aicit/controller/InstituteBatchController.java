@@ -138,6 +138,9 @@ public class InstituteBatchController {
     }
 
     private Long getUserId(String email) {
-        return instituteUserRepository.findByEmail(email).map(u -> u.getId()).orElse(null);
+        return instituteUserRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Authenticated institute user not found: " + email))
+                .getId();
     }
 }
