@@ -72,7 +72,7 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
                c.enrollment_id, c.course_id, c.batch_id, c.amount, c.payment_status,
                c.marks, c.grade, c.issue_date,
                c.status, c.rejection_reason, c.reviewed_by, c.reviewed_at,
-               NULL::bytea AS pdf_data, c.pdf_generated_at, c.revoked_at, c.revoke_reason,
+               CAST(NULL AS bytea) AS pdf_data, c.pdf_generated_at, c.revoked_at, c.revoke_reason,
                c.created_at, c.updated_at
         FROM certificates c
         JOIN students s ON s.id = c.student_id

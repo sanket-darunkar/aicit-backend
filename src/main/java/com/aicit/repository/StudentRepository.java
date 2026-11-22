@@ -45,7 +45,7 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         SELECT s.id, s.aadhaar_number, s.address_line1, s.city, s.created_at,
                s.created_by, s.date_of_birth, s.district, s.first_name, s.gender,
                s.institute_id, s.middle_name, s.notes, s.own_mobile,
-               NULL::bytea AS photo_data,
+               CAST(NULL AS bytea) AS photo_data,
                s.photo_mime_type, s.pin_code, s.qualification, s.state, s.status,
                s.student_id, s.surname, s.updated_at
         FROM students s
@@ -80,7 +80,7 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         SELECT s.id, s.aadhaar_number, s.address_line1, s.city, s.created_at,
                s.created_by, s.date_of_birth, s.district, s.first_name, s.gender,
                s.institute_id, s.middle_name, s.notes, s.own_mobile,
-               NULL::bytea AS photo_data,
+               CAST(NULL AS bytea) AS photo_data,
                s.photo_mime_type, s.pin_code, s.qualification, s.state, s.status,
                s.student_id, s.surname, s.updated_at
         FROM students s
