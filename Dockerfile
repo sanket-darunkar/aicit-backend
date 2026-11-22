@@ -46,12 +46,13 @@ EXPOSE 8081
 #   -XX:MaxRAMPercentage=75.0     – leaves headroom for the OS and PDFBox
 #   -XX:+UseSerialGC              – Serial GC has lower overhead than G1 on
 #                                   small heaps (< 1 GB), typical of Render free tier
-#   -XX:MaxMetaspaceSize=128m     – cap metaspace so it can't silently grow
+#   -XX:MaxMetaspaceSize=256m     – PDFBox + iText7 + Spring Boot load ~180–220 MB of
+#                                   classes; 128m is too small and causes OOM at startup
 #   -Djava.awt.headless=true      – required for PDFBox ImageIO on headless servers
 ENTRYPOINT ["java", \
   "-XX:+UseContainerSupport", \
   "-XX:MaxRAMPercentage=75.0", \
   "-XX:+UseSerialGC", \
-  "-XX:MaxMetaspaceSize=128m", \
+  "-XX:MaxMetaspaceSize=256m", \
   "-Djava.awt.headless=true", \
   "-jar", "app.jar"]
