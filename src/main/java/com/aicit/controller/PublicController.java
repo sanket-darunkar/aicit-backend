@@ -70,7 +70,6 @@ public class PublicController {
 
     // ── Certificate Verification ──────────────────────────────
     @GetMapping("/certificates/verify/{certificateNumber}")
-    @Transactional
     @Operation(summary = "Verify certificate",
                description = "Public certificate verification. Logs every attempt. Returns safe public fields only.")
     public ResponseEntity<ApiResponse<CertificateResponse>> verifyCertificate(
