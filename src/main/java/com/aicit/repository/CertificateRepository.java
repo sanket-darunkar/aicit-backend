@@ -14,6 +14,14 @@ import java.util.Optional;
 @Repository
 public interface CertificateRepository extends JpaRepository<Certificate, Long> {
     Optional<Certificate> findByCertificateNumber(String number);
+
+    /** Eagerly fetches all associations needed for public verification — avoids LazyInitializationException. */
+    @Query("SELECT c FROM Certificate c " +
+           "JOIN FETCH c.student " +
+           "JOIN FETCH c.course " +
+           "JOIN FETCH c.institute " +
+           "WHERE c.certificateNumber = :number")
+    Optional<Certificate> findByCertificateNumberFetched(@Param("number") String number);
     Optional<Certificate> findByIdAndInstituteId(Long id, Long instituteId);
     long countByInstituteId(Long instituteId);
     long countByInstituteIdAndStatus(Long instituteId, Certificate.Status status);

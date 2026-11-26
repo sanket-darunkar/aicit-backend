@@ -76,25 +76,34 @@ public class PublicController {
             @PathVariable String certificateNumber,
             HttpServletRequest request) {
 
-        Certificate cert = certificateRepository.findByCertificateNumber(certificateNumber)
+        // JOIN FETCH eagerly loads all lazy associations in one query —
+        // no open session / @Transactional needed.
+        Certificate cert = certificateRepository.findByCertificateNumberFetched(certificateNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Certificate not found: " + certificateNumber));
 
-        // Log verification attempt
-        var log = CertificateVerificationLog.builder()
-                .certificate(cert)
-                .certificateNumber(certificateNumber)
-                .verifiedAt(LocalDateTime.now())
-                .ipAddress(getClientIp(request))
-                .userAgent(request.getHeader("User-Agent"))
-                .result(cert.getStatus() == Certificate.Status.REVOKED
-                        ? CertificateVerificationLog.Result.REVOKED
-                        : CertificateVerificationLog.Result.FOUND)
-                .build();
-        vlogRepository.save(log);
+        // Build the DTO first (while cert fields are in memory).
+        CertificateResponse response = CertificateResponse.publicView(cert);
 
-        return ResponseEntity.ok(
-                ApiResponse.success("Certificate found", CertificateResponse.publicView(cert)));
+        // Log verification attempt — separate save, cert is already detached/loaded.
+        try {
+            var vlog = CertificateVerificationLog.builder()
+                    .certificate(cert)
+                    .certificateNumber(certificateNumber)
+                    .verifiedAt(LocalDateTime.now())
+                    .ipAddress(getClientIp(request))
+                    .userAgent(request.getHeader("User-Agent"))
+                    .result(cert.getStatus() == Certificate.Status.REVOKED
+                            ? CertificateVerificationLog.Result.REVOKED
+                            : CertificateVerificationLog.Result.FOUND)
+                    .build();
+            vlogRepository.save(vlog);
+        } catch (Exception e) {
+            // Never let a logging failure break the verification response.
+            log.warn("Failed to save verification log for {}: {}", certificateNumber, e.getMessage());
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("Certificate found", response));
     }
 
     // ── Courses ───────────────────────────────────────────────
